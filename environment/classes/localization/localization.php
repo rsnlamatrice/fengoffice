@@ -51,6 +51,6 @@ function langA($name, $args) {
 	
 
 	// Done here...
-	return $value;
+	return htmlspecialchars($value, ENT_QUOTES);
 }
 ?>
