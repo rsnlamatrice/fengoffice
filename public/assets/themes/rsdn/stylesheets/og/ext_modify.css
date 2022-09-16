@@ -96,7 +96,7 @@ ul.x-tab-strip li
     margin-left: 0px;
 }
 
-ul.x-tab-strip li.:last-child{
+ul.x-tab-strip li:last-child{
 	border-right: 1px solid #cbcbcb;
 }
 
@@ -328,7 +328,7 @@ table.date-picker {
 
 .x-tree-node .x-tree-selected {
     background-color: #DAFAD8;
-    border-color: #AACAA8
+    border-color: #AACAA8;
     border-left: 0 none;
 	border-right: 0 none;
 }
@@ -670,10 +670,6 @@ div#menu-panel .x-panel-tbar-noheader .x-toolbar, div#menu-panel .x-panel-mc .x-
 #object-picker .x-resizable-over .x-resizable-handle-northwest, #object-picker .x-resizable-pinned .x-resizable-handle-northwest{background: none;background-color: white;opacity: 1;}
 #object-picker .x-resizable-over .x-resizable-handle-west, #object-picker .x-resizable-pinned .x-resizable-handle-west{background: none;background-color: white;opacity: 1;}
 #object-picker .x-resizable-over .x-resizable-handle-south, #object-picker .x-resizable-pinned .x-resizable-handle-south{background: none;background-color: white;opacity: 1;}
-.x-resizable-over .x-resizable-handle, .x-resizable-pinned .x-resizable-handle{background: none;background-color: white;opacity: 1;}
-.x-resizable-over .x-resizable-handle, .x-resizable-pinned .x-resizable-handle{background: none;background-color: white;opacity: 1;}
-.x-resizable-over .x-resizable-handle, .x-resizable-pinned .x-resizable-handle{background: none;background-color: white;opacity: 1;}
-.x-resizable-over .x-resizable-handle, .x-resizable-pinned .x-resizable-handle{background: none;background-color: white;opacity: 1;}
 
 #object-picker .x-window-bl .x-btn-text{
     background-color: #4d82cc;
