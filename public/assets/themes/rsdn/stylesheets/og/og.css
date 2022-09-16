@@ -12,7 +12,7 @@
 	position: absolute;
 	left: 45%;
 	top: 27px;
-	zIndex: 1000000;
+	z-index: 1000000;
 	cursor: pointer;
 }
 /** /loading indicator **/
@@ -1051,7 +1051,7 @@ select.select_milestone, select.select_task_list, select.select_message {
 .iemenulist {
   background:transparent;
   border:0 none;
-  height: expression( this.scrollHeight > 300 ? "300px" : "auto" ); 
+  height: expression(this.scrollHeight > 300 ? "300px" : "auto" ); 
   max-height: 300px;
   overflow-y: auto;
   overflow-x: hidden;

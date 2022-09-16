@@ -2,14 +2,8 @@
 
 .widget {
 	/* Shadow for ie7 */
-	#zoom: 1;
-	#filter: progid:DXImageTransform.Microsoft.Shadow(color='#CCCCCC', Direction=135, Strength=6);
-}
-
-.widget {
-	/* Shadow for ie7 */
-	#zoom: 1;
-	#filter: progid:DXImageTransform.Microsoft.Shadow(color='#CCCCCC', Direction=135, Strength=6);
+	zoom: 1;
+	filter: progid:DXImageTransform.Microsoft.Shadow(color='#CCCCCC', Direction=135, Strength=6);
 }
 
 .widget-body {
@@ -36,7 +30,7 @@ button.add-first-btn {
 }
 
 
-div.login-body div.input input, div.login-body div.form-container input[type!=checkbox]  {
+div.login-body div.input input, div.login-body div.form-container input:not[type=checkbox]  {
 	padding-top: 7px;
 	height: 25px;
 	border: 2px solid #ddd;

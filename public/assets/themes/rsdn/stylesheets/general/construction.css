@@ -154,7 +154,7 @@ div.user-box-actions textarea
 	border: solid 1px #999999 !important;
 	font-size: 12px !important;
 	margin-top: 3px;
-	height: 45px; !important;	
+	height: 45px !important;	
 }
 
 div.user-box-actions img 
@@ -233,7 +233,7 @@ div.overview-activity textarea, div.overview-activity textarea.huge
 	border: solid 1px #cccccc !important;
 	font-size: 11px !important;
 	width: 400px;
-	height: 16px; !important;
+	height: 16px !important;
 }
 
 #userbox {
