@@ -76,7 +76,7 @@ class ToolController extends ApplicationController {
 		}
 		
 		echo "Concatenating CSS ... ";
-		$cssmin = parseCSS("website.css", "public/assets/themes/default/stylesheets/", ".");
+		$cssmin = parseCSS("website.css", "public/assets/themes/rsdn/stylesheets/", ".");
 		echo "Done!<br>";
 		
 		if ($minify) {
@@ -86,7 +86,7 @@ class ToolController extends ApplicationController {
 		}
 		
 		echo "Writing to file 'ogmin.css' ... ";
-		file_put_contents("public/assets/themes/default/stylesheets/ogmin.css", $cssmin);
+		file_put_contents("public/assets/themes/rsdn/stylesheets/ogmin.css", $cssmin);
 		echo "Done!<br>";
 		die();
 	}
