@@ -343,4 +343,6 @@
 	'sec order' => 'Ordre',
 	'without due date' => 'Non planifiées',
 	'there are no linked objects yet' => 'Il n\'y a pas d\'objets liés',
+	'menu home' => 'Accueil',
+	'type name here' => 'Nom...',
 ); ?>

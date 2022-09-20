@@ -177,4 +177,5 @@
 	'template context' => 'Choisir l\'emplacement du modèle',
 	'entry to see the dimension' => 'Entrée pour voir la dimension',
 	'save with a new name' => 'Sauvegarder avec un nouveau nom',
+	'write comment' => 'Écrire votre commentaire ici',
 ); ?>

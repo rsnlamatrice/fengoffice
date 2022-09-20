@@ -634,4 +634,7 @@ Le contexte <b>{0}</b> est utilisé comme contexte personnel d\'un utilisateur',
 	'set manual permissions' => 'Réglage manuelle des permissions',
 	'set manual permissions desc' => 'Si vous ne définissez pas manuellement les permissions , ils seront automatiquement attribuées en fonction du rôle de l\'utilisateur ( administrateurs, les gestionnaires et les cadres seront accordées avec toutes les autorisations ) .',
 	'or you can also' => 'Ou vous pouvez aussi',
+	'basic data' => 'Général',
+	'more details' => 'Détails',
+	'type to select' => 'Sélectioner un type {0}',
 ); ?>

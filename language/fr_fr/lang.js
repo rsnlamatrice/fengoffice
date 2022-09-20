@@ -807,5 +807,10 @@ addLangs({
 	'general view': 'Vue générale',
 	'save as': 'Enregistrer en tant que {0}',
 	'viewing all information': 'Voir tous les enregistrements',
-	'web document': 'Document Web'
+	'web document': 'Document Web',
+
+	'generate report' : 'Générer un rapport',
+	'all timeslots' : 'Tous les intervalles de temps',
+	'start time' : 'Heure début',
+	'add work' : 'Ajouter des heures travaillées'
 });

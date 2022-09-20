@@ -615,4 +615,5 @@ Le contexte <b>{0}</b> est utilisé comme contexte personnel d\'un utilisateur',
 	'located under' => 'Situé sous',
 	'basic data' => 'Général',
 	'more details' => 'Détails',
+	'type to select' => 'Sélectioner un type {0}',
 ); ?>

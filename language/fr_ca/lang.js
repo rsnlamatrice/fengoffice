@@ -846,5 +846,9 @@ addLangs({
 	'folders': 'Dossiers',
 	'subtasks structure': 'Structure des sous-tâches',
 	'percent completed': '% effectué',
-	'confirm delete group': 'Êtes-vous sûr de vouloir supprimer ce groupe ?'
+	'confirm delete group': 'Êtes-vous sûr de vouloir supprimer ce groupe ?',
+
+	'generate report' : 'Générer un rapport',
+	'all timeslots' : 'Tous les intervalles de temps',
+	'start time' : 'Heure début',
 });
