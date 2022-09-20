@@ -189,14 +189,14 @@ $add_quick_add_row = $can_add_timeslots && config_option('use_time_quick_add_row
     });
     timeslots_columns.push({
         name: 'start_time',
-        header: '<?php echo lang('start time') ?>',
+        header: lang('start time'),
         fixed: true,
         width: 200,
         sortable: true
     });
     timeslots_columns.push({
         name: 'end_time',
-        header: '<?php echo lang('end time') ?>',
+        header: lang('end time'),
         hidden: true,
         sortable: true
     });
@@ -210,21 +210,21 @@ $add_quick_add_row = $can_add_timeslots && config_option('use_time_quick_add_row
     });
     timeslots_columns.push({
         name: 'subtract',
-        header: '<?php echo lang('paused time') ?>',
+        header: lang('paused time'),
         hidden: true,
         align: 'right',
         sortable: true
     });
     timeslots_columns.push({
         name: 'rel_object_name',
-        header: '<?php echo lang('task') ?>',
+        header: lang('task'),
         renderer: og.module_timeslots_grid.task_name_renderer,
         sortable: true
     });
 <?php if ($show_billing) { ?>
         timeslots_columns.push({
             name: 'fixed_billing',
-            header: '<?php echo lang('billing') ?>',
+            header: lang('billing'),
             hidden: true,
             align: 'right',
             sortable: true
@@ -258,9 +258,9 @@ if (is_array($add_columns)) {
         $align = in_array($dummy_ts->getColumnType($col_id), array(DATA_TYPE_FLOAT, DATA_TYPE_INTEGER)) ? 'right' : 'left';
         ?>
             timeslots_columns.push({
-                name: '<?php echo $col_id ?>',
-                header: '<?php echo lang($col_id) ?>',
-                align: '<?php echo $align ?>',
+                name: $col_id,
+                header: lang($col_id),
+                align: $align,
                 hidden: true,
                 renderer: 'string',
                 sortable: true
@@ -274,7 +274,7 @@ if (is_array($add_columns)) {
     var botonera = {
         newtimeslot: new Ext.Button({
             iconCls: 'ico-new add-first-btn blue',
-            text: '<?php echo lang('add work') ?>',
+            text: lang('add work'),
             id: 'new_ts_btn',
             handler: function () {
                 og.render_modal_form('', {c: 'time', a: 'add', params: {contact_id:<?php echo logged_user()->getId() ?>}});
@@ -283,7 +283,7 @@ if (is_array($add_columns)) {
 
         start: new Ext.Button({
             iconCls: 'ico-time add-first-btn',
-            text: '<?php echo lang('start work') ?>',
+            text: lang('start work'),
             id: 'start_work_btn',
             handler: function () {
                 og.openLink(og.getUrl('timeslot', 'open'));
@@ -340,7 +340,7 @@ if (is_array($add_columns)) {
         }),
         print: new Ext.Button({
             iconCls: 'ico-print',
-            text: '<?php echo lang('generate report') ?>',
+            text: lang('generate report'),
             id: 'ts_print_btn',
             handler: function () {
             	var tab = Ext.getCmp('reporting-panel');
@@ -412,7 +412,7 @@ if (is_array($add_columns)) {
 
     // filters
     var type_options = [
-        [0, '<?php echo lang('all timeslots') ?>'], [1, '<?php echo escape_character(lang('task timeslots')) ?>'], [2, '<?php echo escape_character(lang('time timeslots')) ?>']
+        [0, lang('all timeslots')], [1, '<?php echo escape_character(lang('task timeslots')) ?>'], [2, '<?php echo escape_character(lang('time timeslots')) ?>']
     ];
     if (og.additional_timeslot_type_filter_values) {
         for (var j = 0; j < og.additional_timeslot_type_filter_values.length; j++) {
