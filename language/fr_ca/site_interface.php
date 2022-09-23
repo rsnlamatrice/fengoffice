@@ -304,7 +304,7 @@
 	'print view' => 'Imprimer la vue',
 	'activity' => 'Activité',
 	'statistics' => 'Statistiques',
-	'time' => 'Durée',
+	'time' => 'Saisie du temps de travail',
 	'meeting_time' => 'Durée',
 	'task time report' => 'Durée totale d\'exécution des tâches',
 	'new tasks by user' => 'Nouvelles tâches par utilisateur',
