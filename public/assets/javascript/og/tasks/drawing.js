@@ -11,6 +11,10 @@
 //************************************
 
 ogTasks.draw = function () {
+	
+	// reset list selections in cache and current tasks
+	ogTasks.resetSelection();
+
     //first load the groups from server
     if (!ogTasks.Groups.loaded) {
     	ogTasks.resetPaginationVariables();
@@ -323,7 +327,7 @@ ogTasks.drawGroupActions = function (group) {
         '<a id="ogTasksPanelGroupSoloOff' + group.group_id + '" style="display:' + (group.solo ? "inline" : "none") + ';margin-right:15px;" href="#" class="internalLink" onClick="ogTasks.hideShowGroups(\'' + group.group_id + '\')" title="' + lang('show all groups') + '">' + (lang('show all')) + '</a>' +
         '<a href="#" class="internalLink ogTasksGroupAction ico-print" style="margin-right:15px;" onClick="ogTasks.printGroup(\'' + group.group_id + '\')" title="' + lang('print this group') + '">' + (lang('print')) + '</a>';
     if (ogTasks.userPermissions.can_add) {
-        html += '<a href="#" class="internalLink ogTasksGroupAction ico-add" onClick="ogTasks.drawAddNewTaskForm(\'' + group.group_id + '\')" title="' + lang('add a new task to this group') + '">' + (lang('add task')) + '</a>';
+        html += '<a href="#" class="internalLink ogTasksGroupAction ico-add" onClick="ogTasks.drawAddNewTaskForm(\'' + group.group_id + '\', 0, 0, 0, 0, \'task list - add task to group\')" title="' + lang('add a new task to this group') + '">' + (lang('add task')) + '</a>';
     }
     return html;
 }
@@ -616,9 +620,16 @@ ogTasks.reDrawTask = function (task) {
     for (i = 0; i < clocks.length; i++) {
         var clockId = clocks[i].id;
         clockId = clockId.replace("timespan", "");
-        var user_start_time = parseInt($("#" + clockId + "user_start_time").val());
+        var user_start_time_string = $("#" + clockId + "user_start_time + span").html();
 
-        og.startClock(clockId, user_start_time);
+        // Get seconds from user_start_time_string
+        if(user_start_time_string != "") {
+            var time_array = user_start_time_string.split(':');
+            var seconds = parseInt(time_array[0] * 60 * 60) + parseInt(time_array[1] * 60) + parseInt(time_array[2]);
+        } else {
+            var seconds = 0;
+        }
+        og.startClock(clockId, seconds);
     }
 
     og.eventManager.fireEvent('replace all empty breadcrumb', null);
@@ -808,7 +819,7 @@ ogTasks.drawTaskRow = function (task, drawOptions, displayCriteria, group_id, le
     taskActions.push({
         act_collapsed: !drawOptions.show_quick_add_sub_tasks,
         act_onclick: "ogTasks.drawAddNewTaskForm",
-        act_onclick_param: [{param_val: "'" + group_id + "',"}, {param_val: task.id + ","}, {param_val: level}],
+        act_onclick_param: [{param_val: "'" + group_id + "',"}, {param_val: task.id + ","}, {param_val: level+ ","}, {param_val: "'',"}, {param_val: "0,"}, {param_val: "'task list - line add subtask'"}],
         act_text: lang('add subtask'),
         act_id: "ogTasksPanelExpander" + tgId,
         act_class: "add-subtask-link ico-add coViewAction"
@@ -896,8 +907,8 @@ ogTasks.drawTaskRow = function (task, drawOptions, displayCriteria, group_id, le
     for (var key in ogTasks.TotalCols) {
         var row_field = ogTasks.TotalCols[key].row_field;
         var color = '#888';
-        if (row_field == 'worked_time_string' && task.TimeEstimate != '0' && task.TimeEstimate < task.worked_time) {
-            color = '#f00';
+        if (row_field == 'worked_time_string' && task.TimeEstimate != '0' && parseInt(task.TimeEstimate) < parseInt(task.worked_time)) {
+            color = '#f00'; 
         }
         row_total_cols.push({text: task[row_field], color: color});
     }
@@ -1144,7 +1155,10 @@ ogTasks.drawElbows = function (parentTaskId) {
                 if (my_parent.find(".task-elbow").length > 0) {
                     margin_line = parseInt(my_parent.find(".task-elbow").css('marginLeft').replace("px", ""));
                 } else {
-                    margin_line = parseInt(my_parent.find(".task-elbow-line").last().css('marginLeft').replace("px", ""));
+					var elbow = my_parent.find(".task-elbow-line").last().css('marginLeft');
+					if (elbow) {
+						margin_line = parseInt(elbow.replace("px", ""));
+					}
                 }
             }
             $value.find("[data-elbow-line-container]").prepend("<span class='task-elbow-line' style='margin-left: " + margin_line + "px;'></span>");
@@ -1189,7 +1203,7 @@ ogTasks.ToggleCompleteStatus = function (task_id, status) {
 
 ogTasks.ToggleCompleteStatusOk = function (task_id, status, opt) {
     var action = (status == 0) ? 'complete_task' : 'open_task';
-    og.openLink(og.getUrl('task', action, {id: task_id, quick: true, options: opt}), {
+    og.openLink(og.getUrl('task', action, {id: task_id, quick: true, options: opt, req_channel: 'task list - line ' + action}), {
         callback: function (success, data) {
             if (success || !data.errorCode) {
                 if (data.task) {
@@ -1222,7 +1236,7 @@ ogTasks.ToggleCompleteStatusOk = function (task_id, status, opt) {
 
 ogTasks.ToggleChangeMarkAsStarted = function (task_id) {
 
-    og.openLink(og.getUrl('task', "change_mark_as_started", {id: task_id, quick: true}), {
+    og.openLink(og.getUrl('task', "change_mark_as_started", {id: task_id, quick: true, req_channel: 'task list - line mark as started'}), {
         callback: function (success, data) {
             if (!success || data.errorCode) {
 
@@ -1268,7 +1282,7 @@ ogTasks.AddWorkTime = function (task_id) {
     og.render_modal_form('', {
         c: 'time',
         a: 'add',
-        params: {object_id: task_id, contact_id: og.loggedUser.id, dont_reload: 1}
+        params: {object_id: task_id, contact_id: og.loggedUser.id, dont_reload: 1, req_channel: 'task list - add worked hours'}
     });
     return;
 }
@@ -1280,7 +1294,7 @@ ogTasks.readTask = function (task_id, isUnRead) {
         og.openLink(
             og.getUrl('task', 'multi_task_action'),
             {
-                method: 'POST', post: {ids: task_id, action: 'markasread'}, callback: function (success, data) {
+                method: 'POST', post: {ids: task_id, action: 'markasread', req_channel: 'task list - mark as read'}, callback: function (success, data) {
                     if (!success || data.errorCode) {
                     } else {
                         var td = document.getElementById('ogTasksPanelMarkasTd' + task_id);
@@ -1294,7 +1308,7 @@ ogTasks.readTask = function (task_id, isUnRead) {
         og.openLink(
             og.getUrl('task', 'multi_task_action'),
             {
-                method: 'POST', post: {ids: task_id, action: 'markasunread'}, callback: function (success, data) {
+                method: 'POST', post: {ids: task_id, action: 'markasunread', req_channel: 'task list - mark as unread'}, callback: function (success, data) {
                     if (!success || data.errorCode) {
                     } else {
                         var td = document.getElementById('ogTasksPanelMarkasTd' + task_id);
@@ -1527,6 +1541,19 @@ ogTasks.initTasksList = function () {
         );
     }
 
+    //total time estimated
+    if (drawOptions.show_total_time_estimates) {
+        tasks_list_cols.push(
+            {
+                id: 'task_total_estimated',
+                title: lang('total estimated'),
+                group_total_field: 'totalEstimatedTime',
+                row_field: 'totalTimeEstimateString',
+                col_width: '100px'
+            }
+        );
+    }
+
     //time pending
     if (drawOptions.show_time_pending) {
         tasks_list_cols.push(
@@ -1547,7 +1574,20 @@ ogTasks.initTasksList = function () {
                 id: 'task_worked',
                 title: lang('worked'),
                 group_total_field: 'worked_time_string',
-                row_field: 'worked_time_string',
+                row_field: 'worked_time_string', 
+                col_width: '100px'
+            }
+        );
+    }
+
+    //time worked
+    if (drawOptions.show_total_time_worked) {
+        tasks_list_cols.push(
+            {
+                id: 'task_total_worked',
+                title: lang('total worked'),
+                group_total_field: 'overall_worked_time_string',
+                row_field: 'overall_worked_time_string',
                 col_width: '100px'
             }
         );
@@ -1857,7 +1897,8 @@ ogTasks.editTasksAttribute = function (task_ids, attribute, new_value, from_grou
     var params = {
         task_ids: Ext.util.JSON.encode(task_ids),
         attribute: attribute,
-        new_value: new_value
+        new_value: new_value,
+		req_channel: 'task list - edit attribute '+attribute
     };
     og.openLink(og.getUrl('task', 'edit_tasks_attribute'), {
         method: 'POST',
@@ -1889,42 +1930,65 @@ ogTasks.classifyTasks = function (task_ids, member_id, dimension_id, from_group_
     }
     var rm_prev = 0;
 
+	// this fn will be executed after classification
+	var after_classification_fn = function(ids, mem_id) {
+		for (var x = 0; x < ids.length; x++) {
+			var t = ogTasks.getTask(ids[x]);
+			if (t) {
+				$("#ogTasksPanelTask" + t.id + "G" + from_group_id).remove();
+				ogTasks.UpdateTask(t.id, true);
+			}
+		}
+	}
+
+	// find member type id
+	var member_type_id = 0;
+	var mem_array = og.getMemberFromTrees(dimension_id, member_id);
+	if (mem_array && mem_array.length > 0) {
+		member_type_id = mem_array[0].ot;
+	}
+	
+	// get tasks object type
+	var tasks_type = og.get_object_type_by_name('task');
+
+	// check if classification in this type of member can be multiple to show the popup or not
+	var allows_multiple_classification = og.dimension_object_type_contents[dimension_id] &&
+		og.dimension_object_type_contents[dimension_id][member_type_id] &&
+		og.dimension_object_type_contents[dimension_id][member_type_id][tasks_type.id] &&
+		og.dimension_object_type_contents[dimension_id][member_type_id][tasks_type.id].multiple;
+
+	
     // if there are tasks classified in dimension_id => check if remove previous members of dimension_id
-    if (is_classified_in_dim && !isNaN(member_id) && member_id > 0) {
+    if (is_classified_in_dim && allows_multiple_classification && !isNaN(member_id) && member_id > 0) {
+
         if (og.preferences['drag_drop_prompt'] == 'prompt') {
-            var rm_prev = confirm(lang('do you want to mantain the current associations of this obj with members of', og.dimensions_info[dimension_id].name)) ? "0" : "1";
-        } else if (og.preferences['drag_drop_prompt'] == 'move') {
-            var rm_prev = 1;
-        } else if (og.preferences['drag_drop_prompt'] == 'keep') {
-            var rm_prev = 0;
-        }
-    }
 
-    // set request parameters
-    var params = {
-        objects: Ext.util.JSON.encode(task_ids),
-        remove_prev: rm_prev
-    };
-    if (!isNaN(member_id) && member_id > 0) {
-        params.member = member_id; // classify in member_id
+			// ask the user if the prev classification must be kept or removed, then call the classification fn
+			og.drag_drop_classification_keep_or_move_prompt('', null, task_ids, member_id, null, true, after_classification_fn);
+
+		} else {
+			// before calling classification fn decide if prev classification must be kept or removed
+			if (og.preferences['drag_drop_prompt'] == 'move') {
+				var rm_prev = 1;
+			} else if (og.preferences['drag_drop_prompt'] == 'keep') {
+				var rm_prev = 0;
+			}
+
+			// no prompt needed => directly call the classification fn
+			og.call_add_objects_to_member(null, task_ids, member_id, null, true, rm_prev, after_classification_fn);
+		}
+		
     } else {
-        params.dimension = dimension_id; // unclassify from dimension_id
-    }
+		
+		if (isNaN(member_id) || member_id == null) {
+			// unclassify the tasks
+			og.call_add_objects_to_member(null, task_ids, null, null, true, rm_prev, after_classification_fn, dimension_id);
 
-    // make the classification request
-    og.openLink(og.getUrl('member', 'add_objects_to_member'), {
-        method: 'POST',
-        post: params,
-        callback: function (success, data) {
-            for (var x = 0; x < task_ids.length; x++) {
-                var t = ogTasks.getTask(task_ids[x]);
-                if (t) {
-                    $("#ogTasksPanelTask" + t.id + "G" + from_group_id).remove();
-                    ogTasks.UpdateTask(t.id, true);
-                }
-            }
-        }
-    });
+		} else {
+			// no prompt needed => directly call the classification fn
+			og.call_add_objects_to_member(null, task_ids, member_id, null, true, true, after_classification_fn);
+		}
+	}
 }
 
 

@@ -10,7 +10,11 @@ og.MemberTree = function(config) {
 		listeners:{
 			render: {
 				fn: function(f){
-					f.el.on('keyup', function(e) {
+					f.el.on('keyup', function(e) {					
+						if(e.target.value.length != 0 && e.target.value.length < og.config.minimum_characters_dimension_search){
+							return false;
+						}
+
 						var from_server = true;
 						
 						//check history date
@@ -50,7 +54,7 @@ og.MemberTree = function(config) {
 
 						this.filterTree(e.target.value, from_server);
 					},
-					this, {buffer: 350});
+					this, {buffer: 700});
 				},
 				scope: this
 			}
@@ -206,41 +210,9 @@ og.MemberTree = function(config) {
 					
 					// Show modal form if preferences is prompt
 					if (has_relations && og.preferences['drag_drop_prompt'] == 'prompt') {
-						
-						var div = document.createElement('div');
-						var question = lang('do you want to mantain the current associations of this obj with members of', config.title);
-						div.style = "border-radius: 5px; background-color: #fff; padding: 10px; width: 500px;";
-						var genid = Ext.id();
-						div.innerHTML = '<div><label class="coInputTitle">'+lang('classification')+'</label></div>'+
-							'<div id="'+genid+'_question">'+ question+'</div>'+
-							'<div id="'+genid+'_buttons">'+
-							'<button class="replace submit blue">'+lang('replace with the new one')+'</button><button class="keep submit blue">'+lang('keep both current and new')+'</button>'+
-							'</div><div class="clear"></div>';
 
-						var modal_params = {
-							'escClose': false,
-							'overlayClose': false,
-							'closeHTML': '<a id="'+genid+'_close_link" class="modal-close" title="'+lang('close')+'"></a>',
-							'onShow': function (dialog) {
-								$("#"+genid+"_close_link").addClass("modal-close-img");
-								$("#"+genid+"_buttons").css('text-align', 'right').css('margin', '10px 0');
-								$("#"+genid+"_question").css('margin', '10px 0');
-								$("#"+genid+"_buttons button.replace").css('margin-right', '10px').click(function(){
+						og.drag_drop_classification_keep_or_move_prompt(genid, e, ids, e.target.id, attachment, true);
 
-									og.call_add_objects_to_member(e, ids, e.target.id, attachment, true, true);
-									$('.modal-close').click();
-								});
-								$("#"+genid+"_buttons button.keep").css('margin-right', '10px').click(function(){
-									
-									og.call_add_objects_to_member(e, ids, e.target.id, attachment, true, false);
-									$('.modal-close').click();
-								});
-						    }
-						};
-						setTimeout(function() {
-							$.modal(div, modal_params);
-						}, 100);
-						
 					} else {
 						// Here don't show any modal form, just call the reclassify function
 						
@@ -467,22 +439,9 @@ og.MemberTree = function(config) {
 						}
 					});
 				}
-			}else{
-				// Member selection (not root)
-				if ( node.options && node.options.defaultAjax && node.options.defaultAjax.controller && node.options.defaultAjax.action) {
-					var reload = ( this.getSelectionModel() && this.getSelectionModel().getSelectedNode() && this.getSelectionModel().getSelectedNode().id  ==  node.id );
-
-					if (og.contextManager.getDimensionMembers(this.dimensionId).indexOf(node.id) == -1) {
-						og.customDashboard( node.options.defaultAjax.controller, node.options.defaultAjax.action, {id: node.object_id}, reload);
-					}
-				  
-				} else {
-					og.resetDashboard();
-				}
-			
 			}
 			
-			if (node.getDepth() > 0) { 	
+			if (node.getDepth() > 0) {
 				//set focus on the selected node
 				node.ownerTree.suspendEvents();		        
 				node.ensureVisible();
@@ -517,7 +476,7 @@ og.MemberTree = function(config) {
 							var child = node.childNodes[i];
 							child.getUI().show();
 					}
-		        }		        		       				
+		        }
 			}
 		},
 		dblclick: function(node, e){
@@ -605,16 +564,27 @@ og.MemberTree = function(config) {
 									} else {
 										var n = og.resettingAllTrees ? item.getRootNode() : node;
 										
+										item.prevSelection = og.contextManager.getDimensionMembers(item.dimensionId);
+										og.contextManager.cleanActiveMembers(item.dimensionId);
+										
 										item.filterByMember(selected_members, n, function(){
 											self.filteredTrees++;
 											if (self.filteredTrees == self.totalFilterTrees) {
 												self.resumeEvents();
 												og.eventManager.fireEvent('member trees updated', n);
+												
+												// trigger the member changed event after all trees are loaded to avoid repeated requests
+												if (selection_changed && !item.resettingAllTrees) {
+													// if no node is selected then trigger the member changed, if not then the other tree will do it
+													if (item.sel_mem_count == 0) {
+														og.eventManager.fireEvent('member changed', n);
+													}
+												}
 											}
 										});
 										
 									}
-									
+
 									// register that this tree has been filtered, so if any other node is selected this has to be reloaded despite of having no associations with selected member.  
 									item.is_filtered_by = must_reload;
 								}
@@ -624,6 +594,9 @@ og.MemberTree = function(config) {
 								this.resumeEvents();
 								og.eventManager.fireEvent('member trees updated',node);
 								
+								if (selection_changed && !og.resettingAllTrees) {
+									og.eventManager.fireEvent('member changed', node);
+								}
 							}
 						}
 					}
@@ -633,9 +606,6 @@ og.MemberTree = function(config) {
 					og.contextManager.lastSelectedDimension = this.dimensionId ;
 					og.contextManager.lastSelectedMemberType = type; 
 
-					if (selection_changed && !og.resettingAllTrees) {
-						og.eventManager.fireEvent('member changed', node);
-					}
 					
 				}else { 
 					// Multiple Selection: (UNDER DEVELOPENT) 
@@ -868,31 +838,34 @@ Ext.extend(og.MemberTree, Ext.tree.TreePanel, {
 		var mem_count = 0;
 		for (var i = 0 ; i < nids.length ; i++ ) {
 			if ( nids[i] != "undefined" ) {
+				var node_loaded = false;
 				if ( nids[i] != 0 ) {
 					var node = this.getNodeById(nids[i]);
 					
-					// expand selected member hierarchy
-					var member_obj = og.dimensions[this.dimensionId][nids[i]];
-					if (member_obj) {
-						
-						var pnode = member_obj ? og.dimensions[this.dimensionId][member_obj.parent] : null;
-						while (pnode != null && pnode.id != this.getRootNode().id) {
-							if (pnode.id > 0) {
-								og.eventManager.fireEvent('try to expand member', {id:pnode.id, dimension_id:this.dimensionId});
+					node_loaded = this.loaded_member_ids.indexOf(nids[i]) >= 0;
+					if (node_loaded) {
+
+						// expand selected member hierarchy
+						var member_obj = og.dimensions[this.dimensionId][nids[i]];
+						if (member_obj) {
+							
+							var pnode = member_obj ? og.dimensions[this.dimensionId][member_obj.parent] : null;
+							while (pnode != null && pnode.id != this.getRootNode().id) {
+								if (pnode.id > 0) {
+									og.eventManager.fireEvent('try to expand member', {id:pnode.id, dimension_id:this.dimensionId});
+								}
+								pnode = pnode.parent > 0 ? og.dimensions[this.dimensionId][pnode.parent] : null;
 							}
-							pnode = pnode.parent > 0 ? og.dimensions[this.dimensionId][pnode.parent] : null;
 						}
+						// select member
+						og.eventManager.fireEvent('try to select member', {id:nids[i], dimension_id:this.dimensionId});
 					}
-					// select member
-					og.eventManager.fireEvent('try to select member', {id:nids[i], dimension_id:this.dimensionId});
 					
-				} else if (nids.length == 1) {
-					var node = this.getRootNode();
 				} else {
 					continue;
 				}
 				
-				if (nids[i] > 0) {
+				if (node_loaded && nids[i] > 0) {
 					var dimensions_to_reload = this.reloadDimensions;
 				
 					var trees = this.ownerCt.items;
@@ -919,6 +892,8 @@ Ext.extend(og.MemberTree, Ext.tree.TreePanel, {
 		if (mem_count == 0) {
 			og.contextManager.cleanActiveMembers(this.dimensionId);
 		}
+
+		return mem_count;
 	},
 	
 	expandNodes: function (nids, callback) {
@@ -954,6 +929,10 @@ Ext.extend(og.MemberTree, Ext.tree.TreePanel, {
 		
 		// if resetting all trees don't select any node
 		var selectedMembers = og.resettingAllTrees ? [] : og.contextManager.getDimensionMembers(this.dimensionId);
+		if (selectedMembers.length <= 1 && this.prevSelection && this.prevSelection.length > 1) {
+			selectedMembers = this.prevSelection;
+			this.prevSelection = [0];
+		}
 
 		tree.expandMode = "root";
 		
@@ -961,6 +940,8 @@ Ext.extend(og.MemberTree, Ext.tree.TreePanel, {
 		tree.getTopToolbar().container.history = undefined;
 		
 		//this.collapseAll() ;
+
+		this.resettingAllTrees = og.resettingAllTrees;
 		
 		this.loader =  new og.MemberChooserTreeLoader({
 			dataUrl: 'index.php?c=dimension&a=initial_list_dimension_members_tree_root&ajax=true&dimension_id='+this.dimensionId+'&selected_ids='+ Ext.util.JSON.encode(memberIds) +'&avoid_session=1',	
@@ -987,10 +968,13 @@ Ext.extend(og.MemberTree, Ext.tree.TreePanel, {
 						// If not all nodes are exapnded, expand only needed
 						tree.expandNodes(expandedNodes);
 					}
-					tree.selectNodes(selectedMembers); 
+
+					tree.sel_mem_count = tree.selectNodes(selectedMembers);
+					
 			        if( typeof callback == "function"){
-			        	callback();
+						callback();
 			        }
+					tree.resettingAllTrees = false;
 				} 
 			);
 		});

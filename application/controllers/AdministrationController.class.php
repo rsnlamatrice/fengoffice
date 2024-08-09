@@ -248,7 +248,7 @@ class AdministrationController extends ApplicationController {
 		}
 		
 		$object_type_id = get_id();
-		$object_type = ObjectTypes::findById($object_type_id);
+		$object_type = ObjectTypes::instance()->findById($object_type_id);
 		if (!$object_type instanceof ObjectType) {
 			flash_error(lang('object dnx'));
 			ajx_current("empty");
@@ -257,7 +257,7 @@ class AdministrationController extends ApplicationController {
 		
 		$extra_params = array('extra_conditions' => '', 'form_title' => '', 'add_link_text' => '');
 		Hook::fire('list_custom_properties_for_type_extra_parameters', array('request' => $_REQUEST, 'object_type' => $object_type), $extra_params);
-		
+	
 		$extra_conditions = array_var($extra_params, 'extra_conditions');
 		
 		$custom_properties = CustomProperties::getAllCustomPropertiesByObjectType($object_type->getId(), 'all', $extra_conditions, true, true);
@@ -278,12 +278,12 @@ class AdministrationController extends ApplicationController {
 		}
 		
 		$obj_type_id = array_var($_REQUEST, 'ot_id');
-		$object_type = ObjectTypes::findById($obj_type_id);
+		$object_type = ObjectTypes::instance()->findById($obj_type_id);
 		if (!$object_type instanceof ObjectType) {
 			flash_error(lang('object dnx'));
 			return;
 		}
-		
+			
 		$custom_properties_parameter = array_var($_POST, 'custom_properties');
 		if (is_string($custom_properties_parameter)) {
 			$custom_properties = json_decode($custom_properties_parameter, true);
@@ -298,9 +298,24 @@ class AdministrationController extends ApplicationController {
 			foreach ($custom_properties as $order => $data) {
 				
 				$new_cp = null;
+				
+				$is_assoc_substr = 'assoc_';
+
 				if($data['id'] != '') {
 					if (is_numeric($data['id'])) {
 						$new_cp = CustomProperties::getCustomProperty($data['id']);
+					} else if (str_starts_with($data['id'], $is_assoc_substr)){	
+											
+						$dimension_id = substr($data['id'],6);
+						$dim_association = DimensionMemberAssociations::instance()->findById($dimension_id, false);
+						
+						$dim_association->setIsRequired($data['is_required']);
+						$dim_association->setIsMultiple($data['is_multiple_values']);						
+									
+						$dim_association->save();
+
+						continue;
+
 					} else {
 						continue;
 					}
@@ -401,7 +416,7 @@ class AdministrationController extends ApplicationController {
 		$groups = PermissionGroups::getNonRolePermissionGroups();
 		$gr_lengths = array();
 		foreach ($groups as $gr) {
-			$count = ContactPermissionGroups::count("`permission_group_id` = ".$gr->getId());
+			$count = ContactPermissionGroups::instance()->count("`permission_group_id` = ".$gr->getId());
 			$gr_lengths[$gr->getId()] = $count;
 		}
 		tpl_assign('gr_lengths', $gr_lengths);
@@ -699,7 +714,7 @@ class AdministrationController extends ApplicationController {
 			try {
 				DB::beginWork();
 				foreach ($cron_events as $id => $data) {
-					$event = CronEvents::findById($id);
+					$event = CronEvents::instance()->findById($id);
 					$date = getDateValue($data['date']);
 					if ($date instanceof DateTimeValue) {
 						$this->parseTime($data['time'], $hour, $minute);
@@ -758,7 +773,7 @@ class AdministrationController extends ApplicationController {
 		}
 		if (Plugins::instance()->isActivePlugin('mail')) {
 			//$my_accounts = MailAccounts::getMailAccountsByUser(logged_user());
-			$all_accounts = MailAccounts::findAll();
+			$all_accounts = MailAccounts::instance()->findAll();
 		}
 		//tpl_assign('my_accounts', $my_accounts);
 		tpl_assign('all_accounts', $all_accounts);
@@ -787,7 +802,7 @@ class AdministrationController extends ApplicationController {
 				DB::beginWork();
 				foreach ($object_subtypes as $manager => $subtypes) {
 					foreach ($subtypes as $subtype) {
-						$type = ProjectCoTypes::findById(array_var($subtype, 'id', 0));
+						$type = ProjectCoTypes::instance()->findById(array_var($subtype, 'id', 0));
 						if (!$type instanceof ProjectCoType) {
 							$type = new ProjectCoType();
 							$type->setObjectManager($manager);
@@ -840,7 +855,7 @@ class AdministrationController extends ApplicationController {
 			return;
 		} // if
 		
-		$dimensions = Dimensions::findAll(array('conditions' => '`is_manageable` = 1'));
+		$dimensions = Dimensions::instance()->findAll(array('conditions' => '`is_manageable` = 1'));
 		$members = array();
 		
 		$logged_user_pgs = implode(',', logged_user()->getPermissionGroupIds());
@@ -850,7 +865,7 @@ class AdministrationController extends ApplicationController {
 			
 			$allows_all = $dim->hasAllowAllForContact($logged_user_pgs);
 			
-			$root_members = Members::findAll(array('conditions' => array('`dimension_id`=? AND `parent_member_id`=0', $dim->getId()), 'order' => '`name` ASC'));
+			$root_members = Members::instance()->findAll(array('conditions' => array('`dimension_id`=? AND `parent_member_id`=0', $dim->getId()), 'order' => '`name` ASC'));
 			
 			foreach ($root_members as $mem) {
 				if ($dim->getDefinesPermissions() && !$allows_all) {

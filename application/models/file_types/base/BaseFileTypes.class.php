@@ -14,8 +14,7 @@
     * @var array
     * @static
     */
-    static private $columns = array('id' => DATA_TYPE_INTEGER, 'extension' => DATA_TYPE_STRING, 'icon' => DATA_TYPE_STRING, 'is_searchable' => DATA_TYPE_BOOLEAN, 'is_image' => DATA_TYPE_BOOLEAN, 'is_allow' => DATA_TYPE_BOOLEAN);
-  
+    static private $columns = array('id' => DATA_TYPE_INTEGER, 'extension' => DATA_TYPE_STRING, 'icon' => DATA_TYPE_STRING, 'is_searchable' => DATA_TYPE_BOOLEAN, 'is_image' => DATA_TYPE_BOOLEAN, 'is_allow' => DATA_TYPE_BOOLEAN, 'friendly_name' => DATA_TYPE_STRING);
     /**
     * Construct
     *
@@ -222,7 +221,7 @@
     *
     * @return FileTypes 
     */
-    function instance() {
+    static function instance() {
       static $instance;
       if(!instance_of($instance, 'FileTypes')) {
         $instance = new FileTypes();

@@ -248,6 +248,30 @@ Ext.form.ComboBox.override({
 	}
 });
 
+Ext.grid.GridView.override({
+	// override the insertRows function to avoid focus when we insert a row 
+	insertRows : function(dm, firstRow, lastRow, isUpdate){
+		if(!isUpdate && firstRow === 0 && lastRow >= dm.getCount()-1){
+			this.refresh();
+		}else{
+			if(!isUpdate){
+				this.fireEvent("beforerowsinserted", this, firstRow, lastRow);
+			}
+			var html = this.renderRows(firstRow, lastRow);
+			var before = this.getRow(firstRow);
+			if(before){
+				Ext.DomHelper.insertHtml('beforeBegin', before, html);
+			}else{
+				Ext.DomHelper.insertHtml('beforeEnd', this.mainBody.dom, html);
+			}
+			if(!isUpdate){
+				this.fireEvent("rowsinserted", this, firstRow, lastRow);
+				this.processRows(firstRow);
+			}
+		}
+	}
+});
+
 Ext.grid.GridPanel.override({
 	reloadGridPagingToolbar: function (  controller , func , manager) {
 		var bba_before = Ext.getCmp(manager).getBottomToolbar();
@@ -294,18 +318,18 @@ Ext.grid.GridPanel.override({
 		
 		// disable prev,first buttons if first page
 		if(parseInt(current_page) == 1) {					
-			bba.first.disable();
-			bba.prev.disable();
+			if (bba.first) bba.first.disable();
+			if (bba.prev) bba.prev.disable();
 		}
 		if(parseInt(current_page) == 1 && total_pag > 1){
-			bba.last.enable();
-			bba.next.enable();
+			if (bba.last) bba.last.enable();
+			if (bba.next) bba.next.enable();
 		}
 		
 		//if((parseInt(data.totalCount) - parseInt(data.start))<= parseInt(bba.pageSize)){
 		if(Math.ceil(parseInt(data.totalCount) / parseInt(bba.pageSize)) == current_page){
-			bba.last.disable();
-			bba.next.disable();
+			if (bba.last) bba.last.disable();
+			if (bba.next) bba.next.disable();
 		}
 		
 		if (bba.loading) bba.loading.enable();
@@ -377,7 +401,7 @@ Ext.grid.GridPanel.override({
 				align: cps[i].cp_type=='numeric' ? 'right' : 'left',
 				dataIndex: 'cp_' + cps[i].id,
 				sortable: true,
-				renderer: cps[i].cp_type=='image' ? 'string' : og.clean
+				renderer: 'string' //cps[i].cp_type=='image' ? 'string' : og.clean
 			});
 		}
 	}

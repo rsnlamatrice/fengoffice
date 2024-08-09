@@ -30,6 +30,9 @@ class ApplicationLogs extends BaseApplicationLogs {
 	const ACTION_DOWNLOAD    = 'download';
 	const ACTION_CHECKOUT    = 'checkout';
 	const ACTION_CHECKIN     = 'checkin';
+	const ACTION_RELATION_ADDED = 'relation_added';
+	const ACTION_RELATION_EDITED = 'relation_edited';
+	const ACTION_RELATION_REMOVED = 'relation_removed';
     const ACTION_MADE_SEVERAL_CHANGES     = 'made several changes';
 	
 	/**
@@ -52,6 +55,16 @@ class ApplicationLogs extends BaseApplicationLogs {
 				$object->old_content_object = new $class_name;
 			}
 			$object_differences = ApplicationLogDetails::calculateSavedObjectDifferences($object, $object->old_content_object);
+		}
+
+		if (!empty($_REQUEST)) {
+			// get all the request parameters and store them
+			$full_request = var_export($_REQUEST, true);
+			$request_channel = array_var($_REQUEST, 'req_channel', '');
+		} else {
+			// we are inside a script execution like cron.php or any data import script => get the full trace of the execution
+			$full_request = get_back_trace();
+			$request_channel = 'script';
 		}
 		
 		$args = array (
@@ -101,6 +114,9 @@ class ApplicationLogs extends BaseApplicationLogs {
 		$log->setIsPrivate($is_private);
 		$log->setIsSilent($is_silent);
 		$log->setLogData($log_data);
+
+		$log->setFullRequest($full_request);
+		$log->setRequestChannel($request_channel);
 		
 		if($save) {
 			$log->save();
@@ -155,7 +171,10 @@ class ApplicationLogs extends BaseApplicationLogs {
 			self::ACTION_READ,
 			self::ACTION_DOWNLOAD,
 			self::ACTION_CHECKOUT,
-			self::ACTION_CHECKIN
+			self::ACTION_CHECKIN,
+			self::ACTION_RELATION_ADDED,
+			self::ACTION_RELATION_EDITED,
+			self::ACTION_RELATION_REMOVED
 			); // array
 		} // if
 		
@@ -172,11 +191,11 @@ class ApplicationLogs extends BaseApplicationLogs {
 			
 			$userCond = " AND `taken_by_id` = " . $object->getId();
 			
-			return self::count('`is_private` <= '.$private_filter.' AND `is_silent` <= '.$silent_filter.' '.$userCond. $extra_conditions);
+			return self::instance()->count('`is_private` <= '.$private_filter.' AND `is_silent` <= '.$silent_filter.' '.$userCond. $extra_conditions);
 			
 		} else {
 			
-			return self::count('`is_private` <= '.$private_filter.' AND `is_silent` <= '.$silent_filter.' AND 
+			return self::instance()->count('`is_private` <= '.$private_filter.' AND `is_silent` <= '.$silent_filter.' AND 
 				(`rel_object_id` = ('.$object->getId().') OR `rel_object_id` IN (SELECT com.object_id FROM '.TABLE_PREFIX.'comments com WHERE com.rel_object_id='.$object->getId().' )) 
 				' . $extra_conditions
 			);
@@ -201,7 +220,12 @@ class ApplicationLogs extends BaseApplicationLogs {
 		$private_filter = $include_private ? 1 : 0;
 		$silent_filter = $include_silent ? 1 : 0;		
 		
+		/* 
+			COMMENTED SO WE CAN ANALYZE WHAT WAS INTENDED TO DO AND HOW TO FIX IT, 
+			AND SHOW USER LOGS IN THE SAME WAY AS OTHER OBJECTS
+
 		// User History
+
 		if ($object instanceof Contact && $object->isUser()){		
 			$private_filter = $include_private ? 1 : 0;
 			$silent_filter = $include_silent ? 1 : 0;		
@@ -212,22 +236,29 @@ class ApplicationLogs extends BaseApplicationLogs {
 				$private_filter, 
 				$silent_filter); 
 				
-			return self::findAll(array(
+			return self::instance()->findAll(array(
 				'conditions' => $conditions ,
 				'order' => '`created_on` DESC',
 				'limit' => $limit,
 				'offset' => $offset,
 			)); // findAll				
 		} else {
-			$logs = self::findAll(array(
+			-------------------------------------------- */
+	
+			$comment_ids = Comments::instance()->findAll(array('id'=>true, 'conditions'=>'rel_object_id = '.$object->getId()));
+			$comments_conditions = "";
+			if (is_array($comment_ids) && count($comment_ids) > 0) {
+				$comments_conditions = "OR `rel_object_id` IN (".implode(',', $comment_ids).")";
+			}
+			$logs = self::instance()->findAll(array(
 				'conditions' => array('`is_private` <= ? AND `is_silent` <= ? AND 
-					(`rel_object_id` = (?) OR `rel_object_id` IN (SELECT com.object_id FROM '.TABLE_PREFIX.'comments com WHERE com.rel_object_id=? )) 
-					'.$extra_conditions, $private_filter, $silent_filter, $object->getId(), $object->getId()),
+					(`rel_object_id` = (?) '.$comments_conditions.') 
+					'.$extra_conditions, $private_filter, $silent_filter, $object->getId()),
 				'order' => '`created_on` DESC',
 				'limit' => $limit,
 				'offset' => $offset,
 			)); // findAll
-		}
+		//}
 		
 		$next_offset = $offset + $limit;
 		do {
@@ -244,7 +275,7 @@ class ApplicationLogs extends BaseApplicationLogs {
 			}
 			// Get more objects to substitute the removed ones
 			if ($limit && $removed > 0) {
-				$other_logs = self::findAll(array(
+				$other_logs = self::instance()->findAll(array(
 			        'conditions' => array('`is_private` <= ? AND `is_silent` <= ? AND `rel_object_id` = (?) AND `is_private` <= ? AND `is_silent` <= ? 
 			        	AND (`rel_object_id`IN (SELECT `id` FROM '.Comments::instance()->getTableName(true).' WHERE `rel_object_id` = (?)) 
 			        	AND `rel_object_id`IN (SELECT `object_id` FROM '.Timeslots::instance()->getTableName(true).' WHERE `rel_object_id` = (?)))'.$extra_conditions, $private_filter, $silent_filter, $object->getId(),$private_filter, $silent_filter, $object->getId(), $object->getId()),
@@ -332,18 +363,17 @@ class ApplicationLogs extends BaseApplicationLogs {
 		
 		//permissions
 		$logged_user_pgs = implode(',', logged_user()->getPermissionGroupIds());
-			
-		$permissions_condition = "EXISTS (
-			SELECT sh.object_id FROM ".TABLE_PREFIX."sharing_table sh
-			force index (object_id)
-			WHERE al.rel_object_id = sh.object_id AND sh.object_id > 0
-			AND sh.group_id  IN ($logged_user_pgs)
-		)";
+		$share_table_join = "";
+		$permissions_condition = 'true';
+		if(!logged_user()->isAdministrator()){
+			$share_table_join = " INNER JOIN ".TABLE_PREFIX."sharing_table sh ON al.rel_object_id = sh.object_id";
+			$permissions_condition = "sh.group_id  IN ($logged_user_pgs) ";
+		}
 
-		
 		$sql = "SELECT al.id, (select o.object_type_id from ".TABLE_PREFIX."objects o where o.id=al.rel_object_id) as object_type_id
 				FROM ".TABLE_PREFIX."application_logs al 
 				$joins_sql
+				$share_table_join
 				WHERE 
 					$permissions_condition 
 					$extra_conditions
@@ -352,8 +382,10 @@ class ApplicationLogs extends BaseApplicationLogs {
 		";
 		$rows = DB::executeAll($sql);
 		$id_rows = array();
-		foreach ($rows as $r) {
-			if (!in_array($r['object_type_id'], $excluded_object_type_ids)) $id_rows[] = $r['id'];
+		if( $rows) {
+			foreach ($rows as $r) {
+				if (!in_array($r['object_type_id'], $excluded_object_type_ids)) $id_rows[] = $r['id'];
+			}
 		}
 		
 		// if logged user is guest dont show other users logs
@@ -376,7 +408,7 @@ class ApplicationLogs extends BaseApplicationLogs {
 		
 		$logs = array();
 		if (count($id_rows) > 0) {
-			$logs = ApplicationLogs::findAll(array("condition" => "id IN (".implode(',',$id_rows).")", "order" => "created_on DESC"));
+			$logs = ApplicationLogs::instance()->findAll(array("condition" => "id IN (".implode(',',$id_rows).")", "order" => "created_on DESC"));
 		}
 		return $logs;
 	}

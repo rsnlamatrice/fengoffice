@@ -136,7 +136,7 @@ function get_url($controller_name = null, $action_name = null, $params = null, $
 	}
 
 	$url_params = array('c=' . $controller, 'a=' . $action);
-	if(is_array($params)) {
+	if($params && is_array($params)) {
 		foreach($params as $param_name => $param_value) {
 			if(is_bool($param_value)) {
 				$url_params[] = $param_name . '=1';
@@ -489,7 +489,7 @@ function active_context_members($full = true ) {
 function get_context_from_array($ids){
 	$context = array();
 	foreach ($ids as $id) {
-		$member = Members::findById($id) ;
+		$member = Members::instance()->findById($id) ;
 		$context[] = $member;
 	}
 	return $context ;
@@ -515,6 +515,26 @@ function active_context_can_contain_member_type($dimension_id, $member_type_id) 
 	  }
 	}
 	return !$any_member_selected;
+}
+
+
+/**
+ * Get the member from active_context by object_type
+ */
+
+function active_context_member_by_object_type($object_type_id) {
+	$context = active_context();
+	if (is_array($context)) {
+		foreach ($context as $selection) {
+			if ($selection instanceof Member) {
+				if ($selection->getObjectTypeId() == $object_type_id) {
+					return $selection;
+				}
+			}
+		}
+	}
+	return null;
+	
 }
 
 /**
@@ -643,7 +663,7 @@ function user_has_config_option($option_name, $user_id = 0, $workspace_id = 0) {
 	}
 	$option = UserWsConfigOptions::getByName($option_name);
 	if (!$option instanceof UserWsConfigOption) return false;
-	$value = UserWsConfigOptionValues::findById(array(
+	$value = UserWsConfigOptionValues::instance()->findById(array(
 		'option_id' => $option->getId(),
 		'user_id' => $user_id,
 		'workspace_id' => $workspace_id));
@@ -958,7 +978,7 @@ function create_user($user_data, $permissionsString, $rp_permissions_data = arra
 	
 	//permissions
 	$additional_name = "";
-	$tmp_pg = PermissionGroups::findOne(array('conditions' => "`name`='User ".$contact->getId()." Personal'"));
+	$tmp_pg = PermissionGroups::instance()->findOne(array('conditions' => "`name`='User ".$contact->getId()." Personal'"));
 	if ($tmp_pg instanceof PermissionGroup) {
 		$additional_name = "_".gen_id();
 	}
@@ -1027,10 +1047,10 @@ function create_user($user_data, $permissionsString, $rp_permissions_data = arra
 			$permissions = array();
 			$default_permissions = RoleObjectTypePermissions::instance()->findAll(array('conditions' => 'role_id = '.$contact->getUserType()));
 			
-			$dimensions = Dimensions::findAll();
+			$dimensions = Dimensions::instance()->findAll();
 			foreach ($dimensions as $dimension) {
 				if ($dimension->getDefinesPermissions()) {
-					$cdp = ContactDimensionPermissions::findOne(array("conditions" => "`permission_group_id` = ".$contact->getPermissionGroupId()." AND `dimension_id` = ".$dimension->getId()));
+					$cdp = ContactDimensionPermissions::instance()->findOne(array("conditions" => "`permission_group_id` = ".$contact->getPermissionGroupId()." AND `dimension_id` = ".$dimension->getId()));
 					if (!$cdp instanceof ContactDimensionPermission) {
 						$cdp = new ContactDimensionPermission();
 						$cdp->setPermissionGroupId($contact->getPermissionGroupId());
@@ -1193,7 +1213,7 @@ function create_user($user_data, $permissionsString, $rp_permissions_data = arra
 
 // Warning don't use this function inside a mysql transaction, use it after comit.
 function send_notification($user_data, $contact_id, $token_valid_period=null){
-	$contact = Contacts::findById($contact_id);//$contact->getId()
+	$contact = Contacts::instance()->findById($contact_id);//$contact->getId()
 	$password = '';
 	// Send notification
 	try {
@@ -1293,7 +1313,7 @@ function get_enum_values($table, $column) {
 function get_user_dimensions_ids(){
 		
 	//All dimensions
-		$all_dimensions = Dimensions::findAll();
+		$all_dimensions = Dimensions::instance()->findAll();
 		$dimensions_to_show = array();
 		
 		foreach ($all_dimensions as $dim){
@@ -1323,7 +1343,7 @@ function build_context_array($context_plain) {
 					//cambiar
 					foreach ($members as $member) {
 						if ($member && is_numeric($member)) { 
-							$member = Members::findById($member) ;													
+							$member = Members::instance()->findById($member) ;													
 							if ($member instanceof Member ){
 								$context[] = $member ;
 							}
@@ -1962,7 +1982,7 @@ function pdf_convert_and_download($html_filename, $download_filename=null, $orie
 	}
 }
 
-function convert_to_pdf($html_to_convert, $orientation='Portrait', $genid, $page_size="A4", $zoom='') {
+function convert_to_pdf($html_to_convert, $orientation='Portrait', $genid, $page_size="A4", $zoom='', $html_header_footer = array()) {
 	$pdf_filename = null;
 	
 	if(is_exec_available()){
@@ -1976,7 +1996,23 @@ function convert_to_pdf($html_to_convert, $orientation='Portrait', $genid, $page
 		
 		$tmp_html_path = ROOT."/tmp/tmp_html_".$temp_genid.".html";
 		file_put_contents($tmp_html_path, $html_to_convert);
-		
+
+		if($html_header_footer['header']){
+			$tmp_html_header_path = ROOT."/tmp/tmp_html_header_".$temp_genid.".html";
+			file_put_contents($tmp_html_header_path, $html_header_footer['header']);
+			$flag_header = " --header-html  \"".$tmp_html_header_path."\" ";
+		}else{
+			$flag_header = "";
+		}
+
+		if($html_header_footer['footer']){
+			$tmp_html_footer_path = ROOT."/tmp/tmp_html_footer_".$temp_genid.".html";
+			file_put_contents($tmp_html_footer_path, $html_header_footer['footer']);
+			$flag_footer = " --footer-left [page]/[topage] --footer-html  \"".$tmp_html_footer_path."\" ";
+		}else{
+			$flag_footer = "--footer-right [page]/[topage]";
+		}
+
 		if (!in_array($orientation, array('Portrait', 'Landscape'))) $orientation = 'Portrait';
 		
 		$temp_pdf_name = ROOT."/tmp/".$temp_genid.".pdf";
@@ -1987,15 +2023,14 @@ function convert_to_pdf($html_to_convert, $orientation='Portrait', $genid, $page
 		
 		//convert to pdf in background
 		if (substr(php_uname(), 0, 7) == "Windows") {
-			
 			if (!defined('WKHTMLTOPDF_PATH')) define('WKHTMLTOPDF_PATH', "C:\\Program Files\\wkhtmltopdf\\bin\\");
 			$command_location = with_slash(WKHTMLTOPDF_PATH) . "wkhtmltopdf";
-			
-			$command = "\"$command_location\" -s $page_size --encoding utf8 $zoom --footer-right [page]/[topage] -O $orientation \"".$tmp_html_path."\" \"".$temp_pdf_name."\"";
+			$command = "\"$command_location\" -s $page_size --encoding utf8 $zoom -L 1 -R 1 ". $flag_header ." ". $flag_footer ." -O $orientation \"".$tmp_html_path."\" \"".$temp_pdf_name."\"";
 		} else {
 		    $command_location = (defined('WKHTMLTOPDF_PATH') ? with_slash(WKHTMLTOPDF_PATH) : "");
-		    $command = $command_location."wkhtmltopdf -s $page_size --encoding utf8 $zoom --footer-right [page]/[topage] -O $orientation \"".$tmp_html_path."\" \"".$temp_pdf_name."\"";
+		    $command = $command_location."wkhtmltopdf -s $page_size --encoding utf8 $zoom  -L 1 -R 1 ". $flag_header ."  ". $flag_footer ." -O $orientation \"".$tmp_html_path."\" \"".$temp_pdf_name."\"";
 		}
+
 		exec($command, $result, $return_var);
 		
 		if ($return_var > 0){
@@ -2007,6 +2042,12 @@ function convert_to_pdf($html_to_convert, $orientation='Portrait', $genid, $page
 		
 		//delete the png file
 		unlink($tmp_html_path);
+		if($html_header_footer['header']){
+			unlink($tmp_html_header_path);
+		}
+		if($html_header_footer['footer']){
+			unlink($tmp_html_footer_path);
+		}
 			
 		$file_path = ROOT."/tmp/".$pdf_filename;
 		
@@ -2039,7 +2080,7 @@ function process_uploaded_cropped_picture_file($picture, $crop_data) {
 			
 		$ext = strtolower(pathinfo($picture['name'], PATHINFO_EXTENSION));
 		if (in_array($ext, $valid_exts)) {
-			$path = 'tmp/' . uniqid() . '.' . $ext;
+			$path = ROOT . '/tmp/' . uniqid() . '.' . $ext;
 			$size = getimagesize($picture['tmp_name']);
 			
 			$x = (int) $crop_data['x'];
@@ -2160,19 +2201,12 @@ function associate_member_to_status_member($project_member, $old_project_status,
 
 			// add objects to new project_type member
 			if (is_numeric($status_member_id) && $status_member_id > 0) {
-				$member_to_add = Members::findById($status_member_id);
+				$member_to_add = Members::instance()->findById($status_member_id);
 				foreach ($object_members as $om) {
 					ObjectMembers::addObjectToMembers($om->getObjectId(), array($member_to_add));
 				}
-				
-				if ($member_to_add instanceof Member && $member_to_add->getObjectId()>0) {
-					$rel_obj = Objects::findObject($member_to_add->getObjectId());
-					if ($rel_obj instanceof ContentDataObject) {
-						ObjectMembers::addObjectToMembers($rel_obj->getId(), array($project_member));
-						$rel_obj->addToSharingTable();
-						$null=null; Hook::fire("after_auto_classifying_associated_object_of_member", array('obj' => $rel_obj, 'mem' => $project_member), $null);
-					}
-				}
+
+				classify_related_member_object_in_main_member($project_member, $member_to_add);
 			}
 			
 		}
@@ -2189,7 +2223,7 @@ function associate_member_to_status_member($project_member, $old_project_status,
 		if ($a instanceof DimensionMemberAssociation) {
 			if (is_numeric($status_member_id) && $status_member_id > 0) {
 
-				$mpm = MemberPropertyMembers::findOne(array('id' => true, 'conditions' => array('association_id = ? AND member_id = ? AND property_member_id = ?', $a->getId(), $project_member->getId(), $status_member_id)));
+				$mpm = MemberPropertyMembers::instance()->findOne(array('id' => true, 'conditions' => array('association_id = ? AND member_id = ? AND property_member_id = ?', $a->getId(), $project_member->getId(), $status_member_id)));
 				if (is_null($mpm)) {
 					$sql = "INSERT INTO " . TABLE_PREFIX . "member_property_members (association_id, member_id, property_member_id, is_active, created_on, created_by_id)
 						VALUES (" . $a->getId() . "," . $project_member->getId() . "," . $status_member_id . ", 1, NOW()," . logged_user()->getId() . ");";
@@ -2212,7 +2246,7 @@ function associate_member_to_status_member($project_member, $old_project_status,
 		if ($a instanceof DimensionMemberAssociation) {
 			if (is_numeric($status_member_id) && $status_member_id > 0) {
 		
-				$mpm = MemberPropertyMembers::findOne(array('id' => true, 'conditions' => array('association_id = ? AND member_id = ? AND property_member_id = ?', $a->getId(), $project_member->getId(), $status_member_id)));
+				$mpm = MemberPropertyMembers::instance()->findOne(array('id' => true, 'conditions' => array('association_id = ? AND member_id = ? AND property_member_id = ?', $a->getId(), $project_member->getId(), $status_member_id)));
 				if (is_null($mpm)) {
 					$sql = "INSERT INTO " . TABLE_PREFIX . "member_property_members (association_id, member_id, property_member_id, is_active, created_on, created_by_id)
 						VALUES (" . $a->getId() . "," . $status_member_id . "," . $project_member->getId() . ", 1, NOW()," . logged_user()->getId() . ");";
@@ -2225,8 +2259,35 @@ function associate_member_to_status_member($project_member, $old_project_status,
 				MemberPropertyMembers::instance()->delete('association_id = '.$a->getId().' AND property_member_id = '.$project_member->getId() . " AND member_id <> '$status_member_id'");
 			}
 		}
+
+		// trigger the associated members' object classification after adding the relation
+		if (is_numeric($status_member_id) && $status_member_id > 0) {
+			$related_member = Members::getMemberById($status_member_id);
+			if ($related_member instanceof Member) {
+				classify_related_member_object_in_main_member($project_member, $related_member);
+			}
+		}
 	}
 }
+
+
+function classify_related_member_object_in_main_member($main_member, $related_member) {
+
+	if ($main_member instanceof Member && $related_member instanceof Member && $related_member->getObjectId()>0) {
+		
+		$rel_obj = Objects::findObject($related_member->getObjectId());
+		if ($rel_obj instanceof ContentDataObject) {
+			
+			ObjectMembers::addObjectToMembers($rel_obj->getId(), array($main_member));
+			$rel_obj->addToSharingTable();
+			
+			$null=null; 
+			Hook::fire("after_auto_classifying_associated_object_of_member", array('obj' => $rel_obj, 'mem' => $main_member), $null);
+		}
+	}
+
+}
+
 
 function get_all_associated_status_member_ids($member, $dimension, $ot=null, $reverse=false, $assoc_code=null) {
 	$ids = array();
@@ -2249,7 +2310,7 @@ function get_all_associated_status_member_ids($member, $dimension, $ot=null, $re
 		if ($a instanceof DimensionMemberAssociation) {
 			$field_sql = $reverse ? 'AND property_member_id' : 'AND member_id';
 			
-			$mpms = MemberPropertyMembers::findAll(array('conditions' => array('association_id = ? '.$field_sql.' = ?', $a->getId(), $member->getId())));
+			$mpms = MemberPropertyMembers::instance()->findAll(array('conditions' => array('association_id = ? '.$field_sql.' = ?', $a->getId(), $member->getId())));
 			foreach ($mpms as $mpm) {
 				if ($reverse) $ids[] = intval($mpm->getMemberId());
 				else $ids[] = intval($mpm->getPropertyMemberId());
@@ -2279,7 +2340,7 @@ function get_associated_status_member_id($member, $dimension, $ot=null, $reverse
 		
 		if ($a instanceof DimensionMemberAssociation) {
 			$memcol = $reverse ? "property_member_id" : "member_id";
-			$mpm = MemberPropertyMembers::findOne(array('conditions' => array('association_id = ? AND '.$memcol.' = ?', $a->getId(), $member->getId())));
+			$mpm = MemberPropertyMembers::instance()->findOne(array('conditions' => array('association_id = ? AND '.$memcol.' = ?', $a->getId(), $member->getId())));
 			if ($mpm instanceof MemberPropertyMember) {
 				return $reverse ? $mpm->getMemberId() : $mpm->getPropertyMemberId();
 			}
@@ -2316,7 +2377,7 @@ function find_original_dates_for_template_repetitive_task(ProjectTask $task) {
 	
 	$template_id = $task->getColumnValue('from_template_id');
 	if ($task->getOriginalTaskId() > 0) {
-		$first_task = ProjectTasks::findById($task->getOriginalTaskId());
+		$first_task = ProjectTasks::instance()->findById($task->getOriginalTaskId());
 	} else {
 		$first_task = $task;
 	}
@@ -2419,12 +2480,12 @@ function calculate_template_task_parameter_date($parameterValues, $value, $propN
 	$time_value = null;
 	if (isset($exp_value[1])) $time_value = $exp_value[1];
 	
-	$operator = '+';
-	if (strpos($value, '+') === false) {
-		$operator = '-';
-	}
-	$opPos = strpos($value, $operator);
+	$opPos = strpos($value, '}') + 1;// the operator is placed after variable name
+
 	if ($opPos !== false) {
+		
+		$operator = substr($value, $opPos, 1);
+
 		// Is parametric
 		$dateParam = substr($value, 1, strpos($value, '}') - 1);
 		$dateParam = str_replace("'", "", $dateParam);
@@ -2498,10 +2559,11 @@ function calculate_template_task_parameter_date($parameterValues, $value, $propN
 		if($dateUnit == 'i') {
 			$dateUnit = 'm'; // DateTimeValue::add function needs minute option as 'm'
 		}
-		$dateNum = (int) substr($value, strpos($value,$operator), strlen($value) - 2);
+		$dateNum = substr($value, $opPos+1, strlen($value) - $opPos - 2);
+
+		Hook::fire('template_param_date_calculation', array('parameterValues' => $parameterValues, 'op' => $operator, 'date' => $date, 'unit' => $dateUnit, 'template_id' => $object->getTemplateId(), 'original' => $object, 'copy' => $copy), $dateNum);
 		
-		Hook::fire('template_param_date_calculation', array('op' => $operator, 'date' => $date, 'unit' => $dateUnit, 'template_id' => $object->getTemplateId(), 'original' => $object, 'copy' => $copy), $dateNum);
-		
+		$dateNum = (int)$dateNum;
 		$value = $date->add($dateUnit, $dateNum);
 		
 	}else{
@@ -2631,6 +2693,7 @@ function instantiate_template_task_parameters(TemplateTask $object, ProjectTask 
 	$manager = $copy->manager();
 
 	$template_object_properties = $manager->getTemplateObjectProperties();
+	$save_copy = false;
 	
 	foreach($objProp as $property) {
 		$propName = $property->getProperty();
@@ -2646,33 +2709,26 @@ function instantiate_template_task_parameters(TemplateTask $object, ProjectTask 
 	
 		if ($manager->getColumnType($propName) == DATA_TYPE_STRING || ($manager->getColumnType($propName) == DATA_TYPE_INTEGER && $is_user_id) ) {
 			// is a string column or an user id column
-
 			$value = calculate_template_task_parameter_string($parameterValues, $value);
-
 		} else if ($manager->getColumnType($propName) == DATA_TYPE_INTEGER || $manager->getColumnType($propName) == DATA_TYPE_FLOAT) {
 			// is a numeric column
-			
 			if ($is_time_prop) {
 				// this numeric property represents a time amount in minutes
 				$value = calculate_template_task_parameter_time($parameterValues, $value);
-
 			} else {
 				// it is a normal numeric property
 				$value = calculate_template_task_parameter_numeric($parameterValues, $value, $propName);
 			}
-
 		} else if($manager->getColumnType($propName) == DATA_TYPE_DATE || $manager->getColumnType($propName) == DATA_TYPE_DATETIME) {
 			// is a date column
-
 			$result = calculate_template_task_parameter_date($parameterValues, $value, $propName, $object, $copy);
-
 			$value = array_var($result, 'value');
 			$dateUnit = array_var($result, 'dateUnit');
-			
 		}
-
-		if($value != '' && $manager->columnExists($propName)) {
-
+		
+		// Use the paramater value and set it in the copy
+		$column_exist = $manager->columnExists($propName) || $propName == 'name';
+		if($value != '' && $column_exist) {
 			if (!$copy->setColumnValue($propName, $value)){
 				$copy->object->setColumnValue($propName, $value);
 			}
@@ -2685,10 +2741,17 @@ function instantiate_template_task_parameters(TemplateTask $object, ProjectTask 
 			if ($propName == 'text' && $copy->getTypeContent() == 'text') {
 				$copy->setText(html_to_text($copy->getText()));
 			}
-			$copy->save();
 
-		}
-		
+			Hook::fire('after_task_template_param_assigned', array('template_task'=>$object, 'property'=>$propName, 'value'=>$value), $copy);  
+			
+			$save_copy = true;
+		}	
+	}
+
+	Hook::fire('after_setting_all_task_template_params', array(), $copy);
+
+	if ($save_copy) {
+		$copy->save();
 	}
 	
 	// Ensure that assigned user is subscribed
@@ -2938,7 +3001,7 @@ function build_api_members_data(ContentDataObject $object) {
 				'name' => $m->getName(),
 				'dimension_id' => $m->getDimensionId()
 		);
-		$m_ot = ObjectTypes::findById($m->getObjectTypeId());
+		$m_ot = ObjectTypes::instance()->findById($m->getObjectTypeId());
 		if ($m_ot instanceof ObjectType) {
 			$m_data['object_type_name'] = $m_ot->getName();
 		}

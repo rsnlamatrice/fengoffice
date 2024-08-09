@@ -110,8 +110,8 @@ return array(
     'the comment activity' => 'the comment{0}',
     'the user activity' => 'the user{0}',
     'the project activity' => 'the workspace{0}',
-    'the Time activity' => 'a timeslot',
-    'the timeslot activity' => 'the timeslot{0}',
+    'the Time activity' => 'a time entry',
+    'the timeslot activity' => 'the time entry{0}',
     'the message' => 'the note',
     'the mail' => 'the email',
     'the emailunclassified' => 'the email',
@@ -131,7 +131,7 @@ return array(
     'the project' => 'the project',
     'the file_revision' => 'the file revision',
     'the weblink' => 'the link',
-    'the timeslot' => 'the timeslot',
+    'the timeslot' => 'the time entry',
     'the object' => 'the object',
     'the customer_folder' => 'the folder',
     'the project_folder' => 'the folder',
@@ -166,6 +166,9 @@ return array(
     'activity upload' => "{1} uploaded a new version of {0} {2}",
     'activity checkout' => "{1} checked out {0} {2}",
     'activity checkin' => "{1} checked in {0} {2}",
+	'activity relation_added' => "{1} added {2} to {0}",
+	'activity relation_edited' => "{1} edited {2} related to {0}",
+	'activity relation_removed' => "{1} removed {2} from {0}",
     'activity made several changes' => "{1} made ​​several changes on {0} {2}",
     'log read task' => 'The user has accessed the task',
     'log read message' => 'The user has accessed the note',
@@ -176,5 +179,6 @@ return array(
     'log read weblink' => 'The user has accessed the link',
     'x users' => "{0} users{1}",
     'warning file extension type' => "Warning: you are about to save a document with a different file extension from the previous one",
+
 ); // array
 ?>

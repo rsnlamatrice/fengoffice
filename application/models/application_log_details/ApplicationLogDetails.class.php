@@ -2,12 +2,27 @@
 
 class ApplicationLogDetails extends BaseApplicationLogDetails {
 
+
+	static function countLogDetails($application_log_id) {
+		return self::instance()->count("application_log_id = ".DB::escape($application_log_id));
+	}
+
+	static function getLogDetails($application_log_id) {
+		return self::instance()->findAll(array("conditions" => array("application_log_id = ?", $application_log_id)));
+	}
+
 	
 	static function calculateSavedObjectDifferences($object, $old_object) {
 		
 		if ($object instanceof Member) {
 			$object = Objects::findObject($object->getObjectId());
 		}
+		if (!$object instanceof ContentDataObject) {
+			return;
+		}
+
+		// ensure that we have the latest version of the object
+		$object = Objects::findObject($object->getId(), true);
 		if (!$object instanceof ContentDataObject) {
 			return;
 		}
@@ -22,7 +37,11 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 		
 		// member ids
 		$old_member_ids = array_filter($old_object->member_ids);
-		$current_member_ids = array_filter($object->getMemberIds());
+		if ($object instanceof Contact && $object->isUser()) {
+			$current_member_ids = $object->getMemberIdsOfNonPermissionDimensions();
+		} else {
+			$current_member_ids = array_filter($object->getMemberIds());
+		}
 		
 		// remove member ids of persons dimension from both arrays
 		// get the person member ids
@@ -74,7 +93,7 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 			if (array_var($cp_values, $cp->getId()) != array_var($old_cp_values, $cp->getId())) {
 				$differences['cp_' . $cp->getId()] = array(
 					'property' => 'cp_' . $cp->getId(),
-					'old_value' => $old_cp_values[$cp->getId()],
+					'old_value' => isset($old_cp_values[$cp->getId()]) ? $old_cp_values[$cp->getId()] : "",
 					'new_value' => $cp_values[$cp->getId()],
 				);
 			}
@@ -113,6 +132,11 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 			);
 		}
 		
+		// check if any relation with other content object has changed (like changing the task of a timeslot)
+		$changed_relations = $object->getChangedRelations($old_object);
+		if (!empty($changed_relations)) {
+			$differences['changed_relations'] = $changed_relations;
+		}
 		
 		return $differences;
 	}
@@ -120,7 +144,8 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 	
 	
 	static function saveObjectDifferences(ApplicationLog $log, $object_differences) {
-		
+
+		$differences_to_save = array();
 		if ($log->getAction() == ApplicationLogs::ACTION_LINK) {
 			if (array_var($object_differences, 'linked_objects')) {
 				$differences_to_save = array('linked_objects' => $object_differences['linked_objects']);
@@ -131,7 +156,9 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 		
 		$application_log_id = $log->getId();
 
-		foreach ($differences_to_save as $object_difference) {
+		foreach ($differences_to_save as $key => $object_difference) {
+			if ($key == 'changed_relations') continue;
+
 			$object_difference['application_log_id'] = $application_log_id;
 
 			if ($object_difference['old_value'] instanceof DateTimeValue) {
@@ -151,6 +178,24 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 			$detail->save();
 		}
 		
+		$changed_relations = array_var($differences_to_save, 'changed_relations');
+		if (!empty($changed_relations)) {
+
+			// log_action can be relation_added, relation_edited, relation_removed
+			foreach ($changed_relations as $log_action => $related_object_ids) {
+
+				// for each related object we must create a new log entry saying that the relation changed
+				foreach ($related_object_ids as $obj_id) {
+					// find the related object
+					$related_object = Objects::findObject($obj_id);
+
+					if ($related_object instanceof ContentDataObject) {
+						// create the log and set the associated log entry in the log_data value, so we can track which object triggered this log
+						ApplicationLogs::createLog($related_object, $log_action, false, true, true, $application_log_id);
+					}
+				}
+			}
+		}
 		
 	}
 	
@@ -158,10 +203,10 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 	static function buildLogDetailsHtml(ApplicationLog $log, $email_type) {
 		
 		$html = '';
-		$all_details = self::findAll(array('conditions' => 'application_log_id = '.$log->getId()));
+		$all_details = self::instance()->findAll(array('conditions' => 'application_log_id = '.$log->getId()));
 		$object = Objects::findObject($log->getRelObjectId());
 		$manager = $object->manager();
-		$object_type = ObjectTypes::findByID($object->getObjectTypeId());
+		$object_type = ObjectTypes::instance()->findById($object->getObjectTypeId());
 		$log_user_name = $log->getTakenByDisplayName();
 		
 		$logs_html = '';
@@ -183,8 +228,8 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 					if($email_type == '' || in_array($email_type, $config_options)){
 						$newId = $detail->getNewValue();
 						$oldId = $detail->getOldValue();
-						$newContactObj = Contacts::findOne(array('conditions' => array('object_id = ?', $newId)));
-						$oldContactObj = Contacts::findOne(array('conditions' => array('object_id = ?', $oldId)));
+						$newContactObj = Contacts::instance()->findOne(array('conditions' => array('object_id = ?', $newId)));
+						$oldContactObj = Contacts::instance()->findOne(array('conditions' => array('object_id = ?', $oldId)));
 						$newContact = $newContactObj instanceof Contact ? $newContactObj->getDisplayName() : '';
 						$oldContact = $oldContactObj instanceof Contact ? $oldContactObj->getDisplayName() : '';
 						if (isset($oldContact)){
@@ -235,7 +280,7 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 
 						if (count($added_ids) > 0) {
 							$member_names = '';
-							$members = Members::findAll(array('conditions' => 'id IN ('.implode(',',$added_ids).')'));
+							$members = Members::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$added_ids).')'));
 							foreach ($members as $m) {
 								$member_names .= ($member_names == '' ? '' : ', ') . $m->getName();
 							}
@@ -243,7 +288,7 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 						}
 						if (count($removed_ids) > 0) {
 							$member_names = '';
-							$members = Members::findAll(array('conditions' => 'id IN ('.implode(',',$removed_ids).')'));
+							$members = Members::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$removed_ids).')'));
 							foreach ($members as $m) {
 								$member_names .= ($member_names == '' ? '' : ', ') . $m->getName();
 							}
@@ -286,7 +331,7 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 
 					if (count($added_ids) > 0) {
 						$object_names = '';
-						$objects = Objects::findAll(array('conditions' => 'id IN ('.implode(',',$added_ids).')'));
+						$objects = Objects::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$added_ids).')'));
 						foreach ($objects as $o) {
 							$object_names .= ($object_names == '' ? '' : ', ') . $o->getName();
 						}
@@ -294,7 +339,7 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 					}
 					if (count($removed_ids) > 0) {
 						$object_names = '';
-						$objects = Objects::findAll(array('conditions' => 'id IN ('.implode(',',$removed_ids).')'));
+						$objects = Objects::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$removed_ids).')'));
 						foreach ($objects as $o) {
 							$object_names .= ($object_names == '' ? '' : ', ') . $o->getName();
 						}
@@ -315,24 +360,27 @@ class ApplicationLogDetails extends BaseApplicationLogDetails {
 					
 					if (str_starts_with($detail->getProperty(), "cp_")) {
 						$cp_id = str_replace("cp_", "", $detail->getProperty());
-						$cp = CustomProperties::findById($cp_id);
+						$cp = CustomProperties::instance()->findById($cp_id);
 						
-						$old_value = $detail->getOldValue();
-						$new_value = $detail->getNewValue();
-						
-						if (in_array($cp->getType(), array('contact','user','numeric'))) {
-							if (!is_numeric($old_value)) $old_value = '';
-							if (!is_numeric($new_value)) $new_value = '';
-							if ($old_value == $new_value) break;
+						if($cp instanceof CustomProperty) {
+							$old_value = $detail->getOldValue();
+							$new_value = $detail->getNewValue();
+							
+							if (in_array($cp->getType(), array('contact','user','numeric'))) {
+								if (!is_numeric($old_value)) $old_value = '';
+								if (!is_numeric($new_value)) $new_value = '';
+								if ($old_value == $new_value) break;
+							}
+							
+							$field_name = $cp->getName();
+	
+							if ($detail->getOldValue() != '') { 
+								$log_text .= $field_name . ': <span class="log-detail--old-value">' . $old_value . '</span> ' . '<span class="log-detail--new-value">' . $new_value . '</span>';
+							} else {
+								$log_text .= $field_name . ': <span class="log-detail--new-value">' . $new_value . '</span>';
+							}
 						}
-						
-						$field_name = $cp->getName();
 
-						if ($detail->getOldValue() != '') { 
-							$log_text .= $field_name . ': <span class="log-detail--old-value">' . $old_value . '</span> ' . '<span class="log-detail--new-value">' . $new_value . '</span>';
-						} else {
-							$log_text .= $field_name . ': <span class="log-detail--new-value">' . $new_value . '</span>';
-						}
 					} else if (in_array($detail->getProperty(), $co_columns) && !in_array($detail->getProperty(), $system_columns)) {
 						$log_text .= self::buildDetailHtml($detail, $object, $manager, $object_type);
 					}

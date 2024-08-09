@@ -105,6 +105,7 @@ addLangs({
 	'artist': 'Artista',
 	'album': 'Álbum',
 	'year': 'Año',
+    'year to date': 'Año hasta la fecha',
 	'playlist': 'Lista de reproducción',
 	'playlists': 'Listas de reproducción',
 	'unknown': 'Desconocido',
@@ -730,6 +731,7 @@ addLangs({
 	'to csv': 'A csv',
 	'to vcard': 'A VCard',
 	'to vcard all': 'Todos a VCard',
+	'notes': 'Notas',
 	'task milestone workspace inconsistency': 'NOTA: Esta acción moverá la tarea al espacio del hito seleccionado. ¿Desea continuar?',
 	'updated on': 'Actualizado el',
 	'no recipient': 'Sin destinatarios',
@@ -908,5 +910,8 @@ addLangs({
     'add unclassified contact':'Añadir contacto no clasificado',
 	'template name required': 'El nombre de la plantilla es requerido',
     'template': 'Plantilla',
-    'upcoming tasks w': 'Próximas'
+    'upcoming tasks w': 'Próximas',
+	'confirm delete task': 'Confirma eliminar tarea',
+    'time will be rounded to 15 minutes': 'El tiempo se redondeara a un multiplo de 15 minutos',
+	"the user assign to this task doesn't have permission over the selected project. The task is now unassigned": "El usuario asignado a esta tarea no tiene permisos sobre el proyecto seleccionado. La tarea ha sido desasignada.",
 });

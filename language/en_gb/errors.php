@@ -195,7 +195,7 @@
 	'content too long not loaded' => 'Previous email content is too long and was not loaded, but will be sent with this email.',
   	'member name already exists in dimension' => 'Member \'{0}\' already exists in selected dimension.',  
 	'must choose at least one member of' => 'You must choose at least one member of {0}.',
-	'timeslot dnx' => 'Timeslot does not exist',
+	'timeslot dnx' => 'Time entry does not exist',
 	'you dont have permissions to classify object in member' => 'You don\'t have permissions to classify \'{0}\' in \'{1}\'',
   
   	'uploaded file bigger than max upload size' => 'You are trying to upload a document that is over your current upload size limit of {0}.',
@@ -210,7 +210,7 @@
   	'upload error msg UPLOAD_ERR_EXTENSION' => 'A PHP extension stopped the file upload.',
   	
   	'failed to authenticate email account' => 'Failed to authenticate email account',
-  	'failed to authenticate email account desc' => 'Could not authenticate account "{0}" to send notifications, please make sure that the account\'s username and password are correct.',
+  	'failed to authenticate email account desc' => 'Could not authenticate account "{0}" to send notifications, please make sure that the account\'s username and password are correct.'
   ); // array
 
 ?>

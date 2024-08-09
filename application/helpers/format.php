@@ -85,6 +85,33 @@
     }
     return $l->formatDate($datetime, $timezone);
   } // format_date
+
+
+  /**
+  * Return formated date based on object
+  *
+  * @access public
+  * @param DateTimeValue $value If value is not instance of DateTime object new DateTime
+  *   object will be created with $value as its constructor param
+  * @param string $format If $format is NULL default date format will be used
+  * @param float $timezone Timezone, if NULL it will be autodetected (by currently logged user if we have it)
+  * @return string
+  */
+  function format_date_using_object($value = null, $format = null, $timezone = null, $object_type_id = null, $column = null) {
+	$ot = ObjectTypes::instance()->findById($object_type_id);
+	$object_name = $ot->getHandlerClass();
+
+	$obj = new $object_name();
+	$column_type = $obj->getColumnType($column);
+
+	if ($column_type == DATA_TYPE_DATE) {
+		$format = format_date($value, $format, 0);
+	} else {
+		$format = format_date($value, $format, $timezone);
+	}
+	return $format;
+
+  } // format_date_using_object
   
   /**
   * Return descriptive date
@@ -253,7 +280,7 @@ function date_format_tip($format) {
 		switch ($format) {
 			case 'seconds': $formatted = $value * 60; break;
 			case 'minutes': $formatted = $value; break;
-			case 'hours': $formatted = number_format($value / 60, 2); break;
+			case 'hours': $formatted = number_format((int)$value / 60, 2); break;
 			case 'hh:mm':
 		
 				$formatted = sprintf('%02d', intval($value / 60)).':'.sprintf('%02d', $value % 60);
@@ -272,10 +299,13 @@ function date_format_tip($format) {
 	}
 
 
-	function format_value_to_print($col, $value, $type, $obj_type_id, $textWrapper='', $dateformat='Y-m-d', $tz_offset=null,$is_gruped = false) {
+	function format_value_to_print($col, $value, $type, $obj_type_id, $textWrapper='', $dateformat='Y-m-d', $tz_offset=null,$is_gruped = false, $setDateTimeAsDate = false) {
 		$is_time_column = false;
+
+		// Used when needs to display conditions on report conditions, without time format
+		if($setDateTimeAsDate && $type == DATA_TYPE_DATETIME ) $type = DATA_TYPE_DATE;
 		
-		$ot = ObjectTypes::findById($obj_type_id);
+		$ot = ObjectTypes::instance()->findById($obj_type_id);
 		if ($ot instanceof ObjectType && $ot->getHandlerClass() != '') {
 			eval('$manager = '.$ot->getHandlerClass()."::instance();");
 			if ($manager) {
@@ -348,15 +378,22 @@ function date_format_tip($format) {
 				break;
 			case DATA_TYPE_BOOLEAN:
 				
-				if(is_string($value)) {
+				if(!is_numeric($value) && $value != '' && $value != '1') {
+					// if the boolean value is already formatted keep it as it is
 					$formatted = $value;
 				}else if ($value == 1){
 					$formatted = lang('yes');
-			    }else if($value == -1){
-					$formatted = lang('no');
+			    /*}else if($value == -1){
+					$formatted = lang('no');*/
 			    }else{
-			        $formatted = "";
+			        $formatted = lang('no');
 			    }			    
+				break;
+			case DATA_TYPE_OBJECT:
+				$content_object = Objects::findObject($value);
+				if ($content_object instanceof ContentDataObject) {
+					$formatted = $content_object->getName();
+				}
 				break;
 			case DATA_TYPE_DATE:
 				if ($value instanceof DateTimeValue) {
@@ -410,7 +447,7 @@ function date_format_tip($format) {
 function get_format_value_to_header($col, $obj_type_id)
 {
     $formatted = '';
-    $ot = ObjectTypes::findById($obj_type_id);
+    $ot = ObjectTypes::instance()->findById($obj_type_id);
     if ($ot instanceof ObjectType && $ot->getHandlerClass() != '') {
         eval('$manager = ' . $ot->getHandlerClass() . "::instance();");
         if ($manager) {
@@ -489,7 +526,7 @@ function get_format_value_to_header($col, $obj_type_id)
 			
 			foreach ($cp_vals as $cp_val) {
 				if (in_array($cp->getType(), array('contact', 'user')) && $cp_val instanceof CustomPropertyValue) {
-					$cp_contact = Contacts::findById($cp_val->getValue());
+					$cp_contact = Contacts::instance()->findById($cp_val->getValue());
 					if ($cp_contact instanceof Contact) {
 						$cp_val->setValue($cp_contact->getObjectName());
 					} else {
@@ -523,7 +560,7 @@ function get_format_value_to_header($col, $obj_type_id)
 							}
 						}
 					}
-					if (!is_null($lang_value)) {
+					if ( isset( $lang_value)) {
 						$cp_val->setValue($lang_value);
 					}
 				}
@@ -600,6 +637,12 @@ function get_format_value_to_header($col, $obj_type_id)
 						}
 					}
 				}
+
+				if($cp->getType() == 'memo' && $cp_val instanceof CustomPropertyValue){
+					if (!$raw_data) {
+						$cp_val->setValue(nl2br($cp_val->getValue()));
+					}
+				}
 				
 				if ($cp->getType() == 'image' && $cp_val instanceof CustomPropertyValue) {
 					// if raw_data=true then return the json value as it is in the db, else render the feng component
@@ -613,7 +656,7 @@ function get_format_value_to_header($col, $obj_type_id)
 					// if raw_data=true then return the json value as it is in the db, else render the feng component
 					if (!$raw_data) {
 						$currency_id = $cp_val->getCurrencyId();
-						$currency = Currencies::findById($currency_id);
+						$currency = Currencies::instance()->findById($currency_id);
                         if ($currency instanceof Currency) {
 							$currency_symbol = $currency->getSymbol();
 						} else {
@@ -690,7 +733,7 @@ function get_format_value_to_header($col, $obj_type_id)
 			
 			foreach ($cp_vals as $cp_val) {
 				if (in_array($cp->getType(), array('contact', 'user')) && $cp_val instanceof MemberCustomPropertyValue) {
-					$cp_contact = Contacts::findById($cp_val->getValue());
+					$cp_contact = Contacts::instance()->findById($cp_val->getValue());
 					if ($cp_contact instanceof Contact) {
 						$cp_val->setValue($cp_contact->getObjectName());
 					} else {
@@ -799,11 +842,21 @@ function get_format_value_to_header($col, $obj_type_id)
 		return $val_to_show;
 	}
 	
-	
-	function clean_formatted_money_amount_for_sql($amount) {
+	/**
+	 * @param $amount The amount to format
+	 * @param $guess_thousands_separator if thousands separator option is empty this variable specifies if we have to put some value there before formatting
+	 * @return string the formatted amount
+	 */
+	function clean_formatted_money_amount_for_sql($amount, $guess_thousands_separator = true) {
 		
 		$decimals_separator = user_config_option('decimals_separator');
 		$thousand_separator = user_config_option('thousand_separator');
+
+		// if config option doesn't have value for thousand_separator, then guess it using the value un decimals_separator
+		// so we can remove it if the user put it in the amount string
+		if (!$thousand_separator && $guess_thousands_separator) {
+			$thousand_separator = $decimals_separator == ',' ? '.' : ',';
+		}
 		
 		$amount = str_replace($thousand_separator, '', $amount);
 		if ($decimals_separator != '.') {
@@ -814,8 +867,17 @@ function get_format_value_to_header($col, $obj_type_id)
 	}
 	
 	
-	function format_money_amount($number, $symbol = '$', $decimals = null, $decimals_separator = null, $thousand_separator = null) {
+	function format_money_amount($number, $symbol = '$', $decimals = null, $decimals_separator = null, $thousand_separator = null, $excel = false) {
 		
+		if( gettype($number) == "string"){  
+			$number = (float) $number;
+		}
+
+        if($excel) {
+            $currency_format = '"' . $symbol . ' "#,##0.00_-';
+            return 'FORMAT:::' . $currency_format . ':::' .($number ?? 0);
+        }
+
 		if (is_null($decimals)) {
 			$decimals = user_config_option('decimal_digits');
 		}
@@ -831,7 +893,7 @@ function get_format_value_to_header($col, $obj_type_id)
 			$sign = "- ";
 		}
 		$formatted = $sign . $symbol . " " . number_format(abs($number), $decimals, $decimals_separator, $thousand_separator);
-		
+
 		return trim($formatted);
 	}
 
@@ -847,7 +909,7 @@ function get_format_value_to_header($col, $obj_type_id)
 		if ($number < 0) {
 			$sign = "- ";
 		}
-		$formatted = $sign . number_format(abs($number), $decimals, $decimals_separator, $thousand_separator);
+		$formatted = $sign . number_format(abs((float)$number), $decimals, $decimals_separator, $thousand_separator);
 		
 		return trim($formatted);
 	}
@@ -910,4 +972,14 @@ function get_format_value_to_header($col, $obj_type_id)
 		$moment_format = strtr($format, $replacements);
 		return $moment_format;
 	}
-?>
+	/**
+	* Format fileType
+	*
+	* @access public
+	* @param string
+	* @return string
+	*/
+  	function file_types_friendly_name($id) {
+		$testing = FileTypes::instance()->findById($id);
+		return ($id > 0 && !is_null($testing)) ? $testing->getColumnValue('friendly_name') : 'unknown';
+	} // file_types_friendly_name

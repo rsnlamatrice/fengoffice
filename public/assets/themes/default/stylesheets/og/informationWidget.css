@@ -48,7 +48,7 @@
 }
 
 .information-widget-table-definition{
-    padding-right: 30px;
+    padding-right: 20px;
     color: #666;
     width: 160px;
     min-width: 160px;
@@ -70,6 +70,10 @@
   -moz-hyphens: auto;
   -webkit-hyphens: auto;
   hyphens: auto;
+}
+
+.information-widget-table-value br {
+    display: none;
 }
 
 

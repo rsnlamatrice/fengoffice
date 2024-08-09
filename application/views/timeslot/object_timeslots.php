@@ -45,30 +45,36 @@
     	},
 
     	delete_timeslot: function(tid) {
-    		if (confirm('<?php echo escape_single_quotes(lang('confirm delete timeslot'))?>')) {
-    			og.openLink(og.getUrl('time', 'delete_timeslot', {id:tid}), {
-    				callback: function(success, data) {
-    					var g = Ext.getCmp(og.task_timeslots_grid.grid_id);
-    					if (g) {
-    						og.openLink(og.getUrl('task','render_task_work_performed_summary',{id:g.store.baseParams.rel_object_id}), {
-        						callback: function(success,data){
-            						if (data && data.html) {
-            							$("#<?php echo $genid ?>_work_performed_summary").html(data.html);
-            						}
-            					}
-    						});
-							og.openLink(og.getUrl('task','render_task_financials_summary', {id:g.store.baseParams.rel_object_id}), {
-        						callback: function(success,data){
-            						if (data && data.html) {
-            							$("#<?php echo $genid ?>_task_financials_summary").html(data.html);
-            						}
-            					}
-    						});
-    					}
-        				if (g) g.reset();
-    				}
-    			});
-    		}
+			og.openLink(og.getUrl('time', 'check_time_invoicing_status', {id: tid}), {
+                callback: function (success, data) {
+                    if(data.timeslotId > 0){
+						if (confirm('<?php echo escape_single_quotes(lang('confirm delete timeslot'))?>')) {
+							og.openLink(og.getUrl('time', 'delete_timeslot', {id:tid, req_channel:'task view - line delete'}), {
+								callback: function(success, data) {
+									var g = Ext.getCmp(og.task_timeslots_grid.grid_id);
+									if (g) {
+										og.openLink(og.getUrl('task','render_task_work_performed_summary',{id:g.store.baseParams.rel_object_id}), {
+											callback: function(success,data){
+												if (data && data.html) {
+													$("#<?php echo $genid ?>_work_performed_summary").html(data.html);
+												}
+											}
+										});
+										og.openLink(og.getUrl('task','render_task_financials_summary', {id:g.store.baseParams.rel_object_id}), {
+											callback: function(success,data){
+												if (data && data.html) {
+													$("#<?php echo $genid ?>_task_financials_summary").html(data.html);
+												}
+											}
+										});
+									}
+									if (g) g.reset();
+								}
+							});
+						}
+					}
+                }
+            });
     	},
 
     	render_grid_actions: function(value, p, r) {
@@ -79,7 +85,7 @@
 
     		if (r.data.can_edit) {
     			actions += String.format(
-    				'<a class="list-action ico-edit" href="#" onclick="og.render_modal_form(\'\', {c:\'time\', a:\'edit_timeslot\', params:{id:'+r.data.id+'}});" title="{0}" '+
+    				'<a class="list-action ico-edit" href="#" onclick="og.render_modal_form(\'\', {c:\'time\', a:\'edit_timeslot\', params:{id:'+r.data.id+', req_channel:\'task view - line edit\'}});" title="{0}" '+
     				actionStyle + '>&nbsp;</a>', lang('edit')
     			);
     		}
@@ -89,6 +95,12 @@
     				actionStyle + '>&nbsp;</a>', lang('delete')
     			);
     		}
+			if (r.data.can_view_history) {
+				actions += String.format(
+					'<a class="list-action ico-properties" href="#" onclick="og.render_modal_form(\'\', {c:\'object\', a:\'view_history\', params:{id:' + r.data.id + '}});" title="{0}" ' +
+					actionStyle + '>&nbsp;</a>', lang('view history')
+				);
+			}
     			
     		return '<span>' + actions + '</span>';
     	}
@@ -134,7 +146,7 @@
     <?php } ?>
     
 	// system columns
-    var system_columns = ['uid','uname','can_edit','can_delete','add_cls','start_time_ts','paused_on_ts','paused_time_sec','rel_object_id'];
+    var system_columns = ['uid','uname','can_edit','can_delete','add_cls','start_time_ts','paused_on_ts','paused_time_sec','rel_object_id','can_view_history'];
     for (var j=0; j<system_columns.length; j++) {
     	timeslots_columns.push({
         	name: system_columns[j],
@@ -145,8 +157,8 @@
     timeslots_columns.push({
     	name: 'actions',
     	is_right_column: true,
-    	fixed: true,
-    	width: 75, 
+    	//fixed: true,
+    	width: 90, 
     	renderer: og.task_timeslots_grid.render_grid_actions
     });
 
@@ -187,7 +199,15 @@
     	text: '<?php echo lang('add work')?>',
     	id: 'new_user_btn',
     	handler: function() {
-    		og.render_modal_form('', {c:'time', a:'add', params: {object_id:<?php echo $__timeslots_object->getId() ?>, contact_id:<?php echo logged_user()->getId() ?>}});
+    		og.render_modal_form('', {
+				c:'time', 
+				a:'add', 
+				params: {
+					object_id:<?php echo $__timeslots_object->getId() ?>, 
+					contact_id:<?php echo logged_user()->getId() ?>,
+					req_channel: 'task view - toolbar add button'
+				}
+			});
     	}
     });
     timeslots_tbar_items.push(new_btn);
@@ -200,7 +220,10 @@
                 text: '<?php echo lang('start work')?>',
                 id: 'start_work_btn',
                 handler: function() {
-                        og.openLink(og.getUrl('timeslot', 'open', {object_id:<?php echo $__timeslots_object->getId() ?>}));
+					og.openLink(og.getUrl('timeslot', 'open', {
+						object_id:<?php echo $__timeslots_object->getId() ?>,
+						req_channel: 'task view - toolbar start clock'
+					}));
                 }
             });
             timeslots_tbar_items.push(start_work_btn);
@@ -218,7 +241,9 @@
 	});
 	//timeslots_tbar_items.push(ts_print_btn);
 <?php 
-$can_delete_timeslots = can_delete(logged_user(), $__timeslots_object->getMembers(), Timeslots::instance()->getObjectTypeId());
+$timeslot_controller = new TimeslotController();
+$has_invoiced_timeslots = $timeslot_controller->taskHasInvoicedTimeslots($__timeslots_object);
+$can_delete_timeslots = can_delete(logged_user(), $__timeslots_object->getMembers(), Timeslots::instance()->getObjectTypeId()) && !$has_invoiced_timeslots;
 $show_delete_all_button = user_config_option('tasksShowWorkPerformedDeleteAllButton');
 if ($can_delete_timeslots && $show_delete_all_button){
 ?>
@@ -228,7 +253,7 @@ if ($can_delete_timeslots && $show_delete_all_button){
 		id: 'ts_delete_all_btn',
 		handler: function() {
 			if (confirm('<?php echo escape_single_quotes(lang('confirm delete all timeslots'))?>')) {
-				og.openLink(og.getUrl('timeslot', 'delete_all_from_task', {object_id:<?php echo $__timeslots_object->getId() ?>}));
+				og.openLink(og.getUrl('timeslot', 'delete_all_from_task', {object_id:<?php echo $__timeslots_object->getId() ?>, req_channel: 'task view - line delete all'}));
 			}
     				
 		}
@@ -244,7 +269,7 @@ if ($can_delete_timeslots && $show_delete_all_button){
     
     var timeslots_grid = new og.ObjectGrid({
     	renderTo: grid_id + '_container',
-    	url: og.getUrl('time', 'list_all'),
+    	url: og.getUrl('time', 'list_all', {rel_object_id: <?php echo $__timeslots_object->getId() ?>, only_closed:true}),
     	type_name: 'timeslot',
     	response_objects_root: 'timeslots',
     	grid_id: grid_id,
@@ -260,7 +285,9 @@ if ($can_delete_timeslots && $show_delete_all_button){
     	columns: timeslots_columns,
     	tbar_items: timeslots_tbar_items,
 		tbar_right_items: timeslots_tbar_right_items,
-    	no_totals_row: true,
+    //	no_totals_row: true,
+		separate_totals_request:true,
+		forceFit: false,
     	add_default_actions_column: false,
     	stateId: 'task-timeslots-list', // to remember the gui state independent of the panel
     }, true);

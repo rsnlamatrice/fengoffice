@@ -188,7 +188,7 @@ og.contextManager  = new function() {
     
     this.getTreeNode = function (dimId, memberId){ 
     	var tree =  Ext.getCmp("dimension-panel-"+dimId);
-    	return  tree.getNodeById(memberId);
+    	return tree ? tree.getNodeById(memberId) : null;
     	
     }
     
@@ -256,6 +256,22 @@ og.contextManager  = new function() {
     	if ( dimension && this.dimensionMembers[dimension] ) return this.dimensionMembers[dimension] ;
     	else if (dimension) return [] ;
     	else return null ;
+    }
+    
+    
+    /**
+     * Returns an array of member ids for certain diemension that are in the context 
+     */
+    this.getSelectedMembers = function () {
+		var mem_ids = [];
+		for (var dimension in this.dimensionMembers) {
+			if (this.dimensionMembers[dimension]) {
+				mem_ids = mem_ids.concat(this.dimensionMembers[dimension]);
+			}
+		}
+		return mem_ids.filter(function(mid){
+			return mid > 0;
+		});
     }
     
     this.plainActiveMembers = function () {

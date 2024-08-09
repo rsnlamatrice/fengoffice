@@ -17,6 +17,10 @@
 	<![endif]-->
 	<!--[if IE 8]>
 	<?php echo stylesheet_tag("og/ie8.css"); ?>
+	<?php echo add_javascript_to_page("jquery/jquery.js")?>
+	<?php echo add_javascript_to_page("bootstrap/bootstrap.min.js")?>
+	<?php echo add_javascript_to_page("bootstrap/bootstrap-timepicker.js")?>
+
 	<![endif]-->
 	<?php $loading_url = get_image_url("layout/loading.gif");
 		Hook::fire('change_loading_img', null, $loading_url); ?>
@@ -325,6 +329,9 @@ og.config = {
 	'enable_time_module': <?php echo json_encode(module_enabled("time") && can_manage_time(logged_user())) ?>,
 	'enable_reporting_module': <?php echo json_encode(module_enabled("reporting")) ?>,
 	'use_tasks_dependencies': <?php echo json_encode(module_enabled("tasks")) ?>,
+	'customers_module': <?php echo json_encode(module_enabled("customers")) ?>,
+	'default_country_address': <?php echo json_encode(config_option('default_country_address', '')) ?>,
+	'default_type_address': <?php echo json_encode(config_option('default_type_address', '')) ?>,
 	'enabled_dimensions': Ext.util.JSON.decode('<?php echo json_encode(config_option('enabled_dimensions')) ?>'),
 	'brand_colors': {
 		brand_colors_head_back: '<?php echo config_option('brand_colors_head_back')?>',
@@ -336,8 +343,15 @@ og.config = {
 	'with_perm_user_types': Ext.util.JSON.decode('<?php echo json_encode(config_option('give_member_permissions_to_new_users'))?>'),
 	'member_selector_page_size': 100,
 	'show_company_info_report_print': <?php echo config_option('show_company_info_report_print') ? '1' : '0' ?>,
-	'currency_code': '<?php config_option('currency_code', '$') ?>'
+	'currency_code': '<?php config_option('currency_code', '$') ?>',
+	'minimum_characters_dimension_search': <?php echo json_encode(config_option("minimum_characters_dimension_search", 3)) ?>
 };
+var advanced_billing_active = <?php echo Plugins::instance()->isActivePlugin('advanced_billing') ? '1' : '0'; ?>;
+if (advanced_billing_active){
+	og.config['use_is_billable_value_in_tasks'] ='<?php echo config_option('use_is_billable_value_in_tasks')?>';
+	og.config['show_financial_tab_in_task_form'] ='<?php echo config_option('show_financial_tab_in_task_form')?>';
+}
+
 og.preferences = {
 	'viewContactsChecked': <?php echo json_encode(user_config_option('viewContactsChecked')) ?>,
 	'viewUsersChecked': <?php echo json_encode(user_config_option('viewUsersChecked')) ?>,
@@ -431,6 +445,7 @@ foreach ($object_types as $ot) {
     $c_name_plural = $ot->getPluralObjectTypeName();
 	
 	$types[$ot->getId()] = array(
+		"id" => $ot->getId(),
 		"name" => $ot->getName(),
 	    "c_name" => $c_name,
 	    "c_name_plural" => $c_name_plural,
@@ -551,7 +566,7 @@ foreach ($actions as $action) {
 	og.emailFilters.classif = '<?php echo user_config_option('mails classification filter') ?>';
 	og.emailFilters.read = '<?php echo user_config_option('mails read filter') ?>';
 	<?php
-		$acc = MailAccounts::findById(user_config_option('mails account filter'));
+		$acc = MailAccounts::instance()->findById(user_config_option('mails account filter'));
 		if ($acc instanceof MailAccount) {
 			?>
 			og.emailFilters.account = '<?php echo user_config_option('mails account filter') ?>';
@@ -626,7 +641,7 @@ og.dimension_object_type_descendants = Ext.util.JSON.decode('<?php echo json_enc
 og.contextManager.construct();
 og.objPickerTypeFilters = [];
 <?php
-	$obj_picker_type_filters = ObjectTypes::findAll(array("conditions" => "`type` = 'content_object'
+	$obj_picker_type_filters = ObjectTypes::instance()->findAll(array("conditions" => "`type` = 'content_object'
 		AND (plugin_id IS NULL OR plugin_id = 0 OR plugin_id IN (SELECT distinct(id) FROM ".TABLE_PREFIX."plugins WHERE is_installed = 1 AND is_activated = 1 ))
 		AND `name` <> 'file revision' AND name <> 'template_task' AND name <> 'template_milestone' AND `id` NOT IN (
 			SELECT `object_type_id` FROM ".TabPanels::instance()->getTableName(true)." WHERE `enabled` = 0
@@ -665,7 +680,7 @@ og.objPickerTypeFilters = [];
 	og.additional_on_dimension_object_click = [];
 	og.dimension_object_types = [];
 <?php
-	$dimension_object_types = ObjectTypes::findAll(array('conditions' => "`type` IN ('dimension_object', 'dimension_group')"));
+	$dimension_object_types = ObjectTypes::instance()->findAll(array('conditions' => "`type` IN ('dimension_object', 'dimension_group')"));
 	foreach ($dimension_object_types as $dot) { ?>
 		og.dimension_object_types[<?php echo $dot->getId()?>] = '<?php echo $dot->getName()?>';
 <?php
@@ -678,7 +693,7 @@ og.objPickerTypeFilters = [];
 
 og.dimension_object_type_contents = {};
 <?php 
-	$dotcs = DimensionObjectTypeContents::findAll();
+	$dotcs = DimensionObjectTypeContents::instance()->findAll();
 	foreach ($dotcs as $dotc) { /* @var $dotc DimensionObjectTypeContent */?>
 		var dim = <?php echo $dotc->getDimensionId() ?>;
 		var dot = <?php echo $dotc->getDimensionObjectTypeId() ?>;
@@ -728,7 +743,13 @@ $(document).ready(function() {
 		callback: function(s, d) {
 			if (d.dim_names) {
 				og.dimensions_info = d.dim_names;
+				// Add enabled dimensions by code
+				og.enabled_dimensions_by_code = {};
+				for(const [key, value] of Object.entries(og.dimensions_info)) {
+					og.enabled_dimensions_by_code[value.code] = key;
+				}
 			}
+			og.eventManager.fireEvent('after dimensions info loaded', null);
 		}
 	});
 

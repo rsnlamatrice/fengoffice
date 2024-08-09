@@ -208,6 +208,29 @@
     function setSubtract($value) {
       return $this->setColumnValue('subtract', $value);
     } // setUserId() 
+
+    /**
+    * Return value of 'worked_time' field
+    *
+    * @access public
+    * @param void
+    * @return integer
+    */
+    function getWorkedTime() {
+      return $this->getColumnValue('worked_time');
+    } // getFixedBilling()
+    
+    /**
+    * Set value of 'worked_time' field
+    *
+    * @access public   
+    * @param integer $value
+    * @return boolean
+    */
+    function setWorkedTime($value) {
+      return $this->setColumnValue('worked_time', $value);
+    } // setFixedBilling() 
+    
     
     
     /**
@@ -309,6 +332,13 @@
       return $this->setColumnValue('rate_currency_id', $value);
     }
     
+    function getCostCurrencyId() {
+		return $this->getColumnValue('cost_currency_id');
+    }
+
+    function setCostCurrencyId($value) {
+		return $this->setColumnValue('cost_currency_id', $value);
+    }
     
     /**
     * Return manager instance

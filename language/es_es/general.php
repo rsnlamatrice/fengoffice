@@ -307,8 +307,8 @@
 	'user info' => 'Información de Usuario',
 	'without company' => 'Sin Organización',
 	'persons' => 'Personas',
-	'task timeslots report desc' => ' * Solo los tiempos de trabajo asociados a una tarea serán desplegados.',
-	'general timeslots report desc' => ' * Solo los tiempos de trabajo agregados desde la pestaña "Tiempo" serán desplegados.',
+	'task timeslots report desc' => ' * Solo las entradas de tiempo asociadas a una tarea serán desplegadas.',
+	'general timeslots report desc' => ' * Solo las entradas de tiempo agregadas desde la pestaña "Tiempo" serán desplegadas.',
 	'see all' => 'Ver todos',
 	'view all' => 'Ver todos',
 	'name required' => 'Nombre requerido',
@@ -414,7 +414,7 @@
 	
 	'write the first letters of the name or surname of the person to select' => 'Escriba las primeras letras del nombre o apellido de la persona a seleccionar o ',
 	'click here to select one from a list' => 'Click aquí para seleccionar de una lista',
-	'click to select country' => 'Click aquí para selccionar país',
+	'click to select country' => 'Selccionar país',
 		
 	'completed by name on' => 'Completado por {0} el {1}',
     'settings' => 'Ajustes',
@@ -456,4 +456,10 @@
 	'finish sign up' => 'Finalizar registro',
 	'viewing information with the following filters' => 'Mostrando información para los siguientes filtros',
 	'no filter' => 'Sin filtro',
+	'old value' => 'Valor anterior',
+	'new value' => 'Nuevo valor',
+	'hide details' => 'Ocultar detalles',
+	'added' => 'Se agregó',
+	'removed' => 'Se quitó',
+	'manual percent completed' => 'Porcentaje completado manual',
 );

@@ -21,6 +21,11 @@ class MailController extends ApplicationController {
 		prepare_company_website_controller($this, 'website');
 		Env::useHelper('MailUtilities.class', $this->plugin_name);
 		require_javascript("AddMail.js",  $this->plugin_name);
+
+		//Set the default tnef library path
+		if (!defined('TNEF_LIBRARY')) {
+			define('TNEF_LIBRARY', "/usr/bin/tnef");
+		}
 	}
 
 	function init() {
@@ -32,7 +37,7 @@ class MailController extends ApplicationController {
 
 	private function getDefaultAccountId($user = null) {
 		if (!$user) $user = logged_user();
-		$default_account = MailAccountContacts::findOne(array('conditions' => array('`contact_id` = ? AND `is_default` = ?', $user->getId(), true)));
+		$default_account = MailAccountContacts::instance()->findOne(array('conditions' => array('`contact_id` = ? AND `is_default` = ?', $user->getId(), true)));
 		if ($default_account instanceof MailAccountContact && $default_account->getAccount() instanceof MailAccount) {
 			return $default_account->getAccount()->getId();
 		}
@@ -44,13 +49,17 @@ class MailController extends ApplicationController {
 		$loc->setDateTimeFormat("D, d M Y H:i:s O");
 
 		$offset_hours = logged_user()->getUserTimezoneHoursOffset();
+		$sent_date_str = "";
+		if ($original_mail->getSentDate() instanceof DateTimeValue) {
+			$sent_date_str = lang('mail sent').": ".$loc->formatDateTime($original_mail->getSentDate(), $offset_hours);
+		}
 
 		if ($type == 'plain') {
 			$cc_cell = $original_mail->getCc() == '' ? '' : "\n".lang('mail CC').": ".$original_mail->getCc();
-			$str = "\n\n----- ".lang('original message')."-----\n".lang('mail from').": ".$original_mail->getFrom()."\n".lang('mail to').": ".$original_mail->getTo()."$cc_cell\n".lang('mail sent').": ".$loc->formatDateTime($original_mail->getSentDate(), $offset_hours)."\n".lang('mail subject').": ".$original_mail->getSubject()."\n\n";
+			$str = "\n\n----- ".lang('original message')."-----\n".lang('mail from').": ".$original_mail->getFrom()."\n".lang('mail to').": ".$original_mail->getTo()."$cc_cell\n". $sent_date_str ."\n".lang('mail subject').": ".$original_mail->getSubject()."\n\n";
 		} else {
 			$cc_cell = $original_mail->getCc() == '' ? '' : "<tr><td>".lang('mail CC').": ".$original_mail->getCc()."</td></tr>";
-			$str = "<br><br><table><tr><td>----- ".lang('original message')." -----</td></tr><tr><td>".lang('mail from').": ".$original_mail->getFrom()."</td></tr><tr><td>".lang('mail to').": ".$original_mail->getTo()."</td></tr>$cc_cell<tr><td>".lang('mail sent').": ".$loc->formatDateTime($original_mail->getSentDate(), $offset_hours)."</td></tr><tr><td>".lang('mail subject').": ".$original_mail->getSubject()."</td></tr></table><br>";
+			$str = "<br><br><table><tr><td>----- ".lang('original message')." -----</td></tr><tr><td>".lang('mail from').": ".$original_mail->getFrom()."</td></tr><tr><td>".lang('mail to').": ".$original_mail->getTo()."</td></tr>$cc_cell<tr><td>". $sent_date_str ."</td></tr><tr><td>".lang('mail subject').": ".$original_mail->getSubject()."</td></tr></table><br>";
 		}
 		return $str;
 	}
@@ -58,7 +67,7 @@ class MailController extends ApplicationController {
 	function reply_mail() {
 		$this->setTemplate('add_mail');
 		$mail = new MailContent();
-		$original_mail = MailContents::findById(get_id());
+		$original_mail = MailContents::instance()->findById(get_id());
 		if(!$original_mail instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -136,6 +145,9 @@ class MailController extends ApplicationController {
 		}else{
 			$re_body = $original_mail->getBodyPlain();
 		}
+                $pre_quote = "";
+                $post_quote = "";
+		
 		if ($type == 'html') {
 
 		} else {
@@ -165,7 +177,9 @@ class MailController extends ApplicationController {
 
 		// Put original mail images in the reply or foward
 		if ($original_mail->getBodyHtml() != '') {
-			MailUtilities::parseMail($original_mail->getContent(), $decoded, $parsedEmail, $warnings);
+
+			$content1 = $original_mail->getContent();
+			MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 			$tmp_folder = "/tmp/" . $original_mail->getId() . "_reply";
 			if (is_dir(ROOT . $tmp_folder)) remove_dir(ROOT . $tmp_folder);
 			if ($parts_container = array_var($decoded, 0)) {
@@ -179,11 +193,26 @@ class MailController extends ApplicationController {
 			if ($original_mail->getHasAttachments()) {
 				$utils = new MailUtilities();
 				if (!isset($parsedEmail)) {
-					MailUtilities::parseMail($original_mail->getContent(), $decoded, $parsedEmail, $warns);
+					$original_mail_content = $original_mail->getContent();
+					MailUtilities::parseMail($original_mail_content, $decoded, $parsedEmail, $warns);
 				}
 				$attachments = array();
 				if (isset($parsedEmail['Attachments'])) $attachments = $parsedEmail['Attachments'];
 				$attachments = array_merge($attachments, array_var($parsedEmail, "Related", array()));
+
+				$more_attachments = [];
+				// if attachment is an email get the attached email's attachments
+				foreach($attachments as $k => &$attach) {
+					if (array_var($attach, 'Type') == 'message') {
+						// get the attachments embeeded in the attached email
+						$more_atts = MailUtilities::getAttachmentsFromEmlAttachment($attach, $k);
+						$more_attachments = array_merge($more_attachments, $more_atts);
+						// remove the email from the attachments
+						unset($attachments[$k]);
+					}
+				}
+				// add the additional attachments found in the attached email to the final result
+				$attachments = array_merge($attachments, $more_attachments);
 
 				foreach($attachments as $att) {
 					$fName = utf8_encode_mime_header_value($att["FileName"]);
@@ -214,7 +243,8 @@ class MailController extends ApplicationController {
 		}
 
 		$cache_fname = "";
-		if (strlen($re_body) > 200 * 1024) {
+		// when body size is greater than 20 MB -> hide content in the mail body editor (it will be sent anyways)
+		if (strlen($re_body) > 20000 * 1024) {
 			$cache_fname = gen_id();
 			file_put_contents(ROOT . "/tmp/$cache_fname", $re_body);
 			$re_body = lang("content too long not loaded");
@@ -239,7 +269,7 @@ class MailController extends ApplicationController {
 		$errors = array();
 		if (is_array($custom_props)) {
 			foreach ($custom_props as $id => $value) {
-				$cp = CustomProperties::findById($id);
+				$cp = CustomProperties::instance()->findById($id);
 				if (!$cp) continue;
 				if ($cp->getIsRequired() && $value == '') {
 					 $errors[] = lang('custom property value required', $cp->getName());
@@ -250,7 +280,7 @@ class MailController extends ApplicationController {
 	}
 
 	function change_email_folder() {
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -333,7 +363,7 @@ class MailController extends ApplicationController {
 		}
 
         $id = array_var($mail_data, 'id');
-        $mail = MailContents::findById($id);
+        $mail = MailContents::instance()->findById($id);
         $isNew = false;
         if (!$mail) {
             $isNew = true;
@@ -348,7 +378,7 @@ class MailController extends ApplicationController {
 
 		$def_acc_id = $this->getDefaultAccountId();
 		if ($def_acc_id > 0){
-			$def_acc = MailAccounts::getAccountById($def_acc_id);
+			$def_acc = MailAccounts::instance()->getAccountById($def_acc_id);
 			if ($def_acc instanceof MailAccount){
 				tpl_assign('default_account', $def_acc);
 			}
@@ -357,11 +387,12 @@ class MailController extends ApplicationController {
 		tpl_assign('mail_data', $mail_data);
 		tpl_assign('mail_accounts', $mail_accounts);
 
-		Hook::fire('send_to', array_var($_GET, 'ids'),array_var($_GET, 'me'));
+		$me = array_var($_GET, 'me');
+		Hook::fire('send_to', array_var($_GET, 'ids'),$me);
 
 		// Form is submited
 		if (is_array($mail_data)) {
-			$account = 	MailAccounts::findById(array_var($mail_data, 'account_id'));
+			$account = 	MailAccounts::instance()->findById(array_var($mail_data, 'account_id'));
 			if (!$account instanceof MailAccount) {
 				flash_error(lang('mail account dnx'));
 				ajx_current("empty");
@@ -472,7 +503,7 @@ class MailController extends ApplicationController {
  			$objects = array_var($_POST, 'linked_objects');
  			$attach_contents = array_var($_POST, 'attach_contents', array());
 
- 			$original_email = isset($mail_data['original_id']) ? MailContents::findById($mail_data['original_id']) : null;
+ 			$original_email = isset($mail_data['original_id']) ? MailContents::instance()->findById($mail_data['original_id']) : null;
 
  			if (is_array($objects)) {
  				$err = 0;
@@ -502,7 +533,7 @@ class MailController extends ApplicationController {
  					} else {
 	 					if (isset($attach_contents[$count])) {
 	 						if ($split[0] == 'ProjectFiles') {
-			 					$file = ProjectFiles::findById($object->getId());
+			 					$file = ProjectFiles::instance()->findById($object->getId());
 			 					if (!($file instanceof ProjectFile)) {
 			 						flash_error(lang('file dnx'));
 			 						$err++;
@@ -519,7 +550,7 @@ class MailController extends ApplicationController {
 			 						"type" => $file->getTypeString()
 			 					);
 	 						} else if ($split[0] == 'MailContents') {
-	 							$email = MailContents::findById($object->getId());
+	 							$email = MailContents::instance()->findById($object->getId());
 			 					if (!($email instanceof MailContent)) {
 			 						flash_error(lang('email dnx'));
 			 						$err++;
@@ -625,7 +656,7 @@ class MailController extends ApplicationController {
 				$mail->setHasAttachments((is_array($attachments) && count($attachments) > 0) ? 1 : 0);
 				$mail->setAccountEmail($account->getEmailAddress());
 
- 				$mail->setSentDate(DateTimeValueLib::now());
+ 				//$mail->setSentDate(DateTimeValueLib::now());
  				$mail->setReceivedDate(DateTimeValueLib::now());
 
 				DB::beginWork();
@@ -634,7 +665,7 @@ class MailController extends ApplicationController {
 				$conversation_id = array_var($mail_data, 'conversation_id');
 				$in_reply_to_id = array_var($mail_data, 'in_reply_to_id');
 				if ($conversation_id) {
-					$in_reply_to = MailContents::findById(array_var($mail_data, 'original_id'));
+					$in_reply_to = MailContents::instance()->findById(array_var($mail_data, 'original_id'));
 					if ($in_reply_to instanceof MailContent && $in_reply_to->getSubject() && strpos(strtolower($mail->getSubject()), strtolower($in_reply_to->getSubject())) === false) {
 						$conversation_id = null;
 						$in_reply_to_id = '';
@@ -698,7 +729,7 @@ class MailController extends ApplicationController {
 				// if replying a classified email classify on same workspace
 				$classified_with_conversation = false;
 				if (array_var($mail_data, 'original_id')) {
-					$in_reply_to = MailContents::findById(array_var($mail_data, 'original_id'));
+					$in_reply_to = MailContents::instance()->findById(array_var($mail_data, 'original_id'));
 					if ($in_reply_to instanceof MailContent) {
 						$member_ids = array_merge($member_ids, $in_reply_to->getMemberIds());
 						$classified_with_conversation = true;
@@ -728,7 +759,7 @@ class MailController extends ApplicationController {
 
 
 				//subscribe user
-				$user = Contacts::findById($account->getContactId());
+				$user = Contacts::instance()->findById($account->getContactId());
 				if($user instanceof Contact){
 					$mail->subscribeUser($user);
 				}
@@ -758,8 +789,6 @@ class MailController extends ApplicationController {
                         		send_outbox_emails_in_background($account);
                         		
                         		flash_success(lang('success mail enqueued'));
-
-								MailController::outbox_popup();
                         	
                         	} else {
                         		// send the email inmediatelly
@@ -767,8 +796,6 @@ class MailController extends ApplicationController {
 	                                $from_time = DateTimeValueLib::now();
 	                                $from_time = $from_time->add('h', -24);
 	                                $this->send_outbox_mails(null,$account,$from_time);
-
-									MailController::outbox_popup();
 	                            }
                         	}
                         	
@@ -776,8 +803,6 @@ class MailController extends ApplicationController {
                             Logger::log("Fail to send the mail the first time object id: ".$mail->getObjectId());
                             Logger::log($e->getMessage());
                             evt_add("must send mails", array("account" => $mail->getAccountId()));
-
-							MailController::outbox_popup();
                         }
 						//flash_success(lang('mail is being sent'));
 						ajx_current("back");
@@ -860,7 +885,7 @@ class MailController extends ApplicationController {
 
 		$from_time_cond = "";
 		if(!is_null($from_time) && $from_time instanceof DateTimeValue){
-			$from_time_cond = " AND `created_on` > '".$from_time->toMySQL()."'";
+			$from_time_cond = " AND (`created_on` > '".$from_time->toMySQL()."' OR `state` <= 210)";
 		}
 
 		session_commit();
@@ -871,7 +896,7 @@ class MailController extends ApplicationController {
 		if(!is_null($user_account)){
 			$userAccounts = array($user_account);
 		}elseif (array_var($_GET, 'acc_id')){
-			$account = MailAccounts::findById(array_var($_GET, 'acc_id'));
+			$account = MailAccounts::instance()->findById(array_var($_GET, 'acc_id'));
 			$userAccounts = array($account);
 		}else{
 			$userAccounts = MailAccounts::getMailAccountsByUser($user);
@@ -899,7 +924,8 @@ class MailController extends ApplicationController {
 				if (defined("MAILS_MAX_OUTBOX_STATE") && is_numeric(MAILS_MAX_OUTBOX_STATE)) {
 					$extra_state_cond = " AND `state` < " . MAILS_MAX_OUTBOX_STATE;
 				}
-				$mails = MailContents::findAll(array(
+
+				$mails = MailContents::instance()->findAll(array(
 					"conditions" => array("`is_deleted`=0 AND `state` >= 200 $extra_state_cond AND `account_id` = ? AND `created_by_id` = ? $from_time_cond", $account->getId(), $accountUser->getContactId()),
 					"order" => "`state` ASC"
 				));
@@ -997,12 +1023,12 @@ class MailController extends ApplicationController {
 							}
 						}
 
-						$mail->setSentDate(DateTimeValueLib::now());
+						
 						$mail->setReceivedDate(DateTimeValueLib::now());
 
 						if (defined('DEBUG') && DEBUG) file_put_contents(ROOT."/cache/log_mails.txt", gmdate("d-m-Y H:i:s") . " antes de enviar: ".$mail->getId() . "\n", FILE_APPEND);
 
-						$sentOK = $utils->sendMail($account->getSmtpServer(), $to, $from, $subject, $body, $cc, $bcc, $attachments, $account->getSmtpPort(), $account->smtpUsername(), $account->smtpPassword(), $type, $account->getOutgoingTrasnportType(), $msg_id, $in_reply_to_id, $images, $complete_mail, $att_version);
+						$sentOK = $utils->sendMail($account->getSmtpServer(), $to, $from, $subject, $body, $cc, $bcc, $attachments, $account->getSmtpPort(), $account->smtpUsername(), $account->smtpPassword(), $type, $account->getOutgoingTrasnportType(), $msg_id, $in_reply_to_id, $images, $complete_mail, $att_version, $account);
 						$mail->orderConversation();
 
                         if (defined('DEBUG') && DEBUG) file_put_contents(ROOT."/cache/log_mails.txt", gmdate("d-m-Y H:i:s") . " despues de sendMail: ".$mail->getId() . "\n", FILE_APPEND);
@@ -1024,13 +1050,12 @@ class MailController extends ApplicationController {
 					try {
 						if ($sentOK) {
 							DB::beginWork();
+							$mail->setSentDate(DateTimeValueLib::now());
 							$mail->setState(3);
 							$mail->save();
 							DB::commit();
 						} else {
 							Logger::log("Swift returned sentOK = false after sending email\nmail_id=".$mail->getId());
-							evt_add("error sending mail");							
-							
 							// set status to a higher and pair value, to retry later.
 							if (!$mail->addToStatus(1)) Logger::log("Swift could not send the email and the state could not be set to retry later.\nmail_id=".$mail->getId());
 						}
@@ -1044,12 +1069,9 @@ class MailController extends ApplicationController {
 
 					try {
 
-						if ($sentOK && config_option("sent_mails_sync")) {
+						if ($sentOK && config_option("sent_mails_sync") && $account->getIsImap()) {
 							$mu = new MailUtilities();
-							$appended = $mu->appendMailThroughIMAP($account, $complete_mail);
-							if ($appended) {
-								DB::execute("UPDATE ".TABLE_PREFIX."mail_contents SET sync=1 WHERE object_id=".$mail->getId());
-							}
+							$appended = $mu->appendMailThroughIMAP($account, $mail, $complete_mail);
 							debug_log("mail_id=".$mail->getId()." - appended=$appended", "sent_emails_sync.log");
 						}
 
@@ -1090,21 +1112,19 @@ class MailController extends ApplicationController {
 
 							$mail->setContentFileId($repository_id);
 							$mail->setSize(strlen($content));
-							if (config_option("sent_mails_sync") && isset($check_sync_box) && $check_sync_box)
-								$mail->setSync(true);
 							$mail->save();
 
 							if (defined('DEBUG') && DEBUG) file_put_contents(ROOT."/cache/log_mails.txt", gmdate("d-m-Y H:i:s") . " email saved: ".$mail->getId() . "\n", FILE_APPEND);
 
 							// remove archived attachments
-							$attachs = ProjectFiles::findAll(array('conditions' => "mail_id=".$mail->getId()));
+							$attachs = ProjectFiles::instance()->findAll(array('conditions' => "mail_id=".$mail->getId()));
 							foreach ($attachs as $attach) {
 								if ($attach->getArchivedById() == $user->getId() && $attach->getCreatedById() == $user->getId() && $attach->countRevisions()==1) {
 									$attach->delete();
 								}
 							}
 
-							$properties = array("id" => $mail->getId());							
+							$properties = array("id" => $mail->getId());
 							evt_add("mail sent", $properties);
 							$count++;
 						}
@@ -1113,14 +1133,14 @@ class MailController extends ApplicationController {
 						DB::rollback();
 						Logger::log("Exception deleting tmp repository files (attachment list): ".$e->getMessage()."\nmail_id=".$mail->getId());
 					}
-				}				
+				}
 				if ($count > 0) {
 					evt_add("mails sent", $count);
 				}
 			} catch (Exception $e) {
 				$errorEmailUrl = '';
 				if ($errorMailId > 0){
-					$email = MailContents::findById($errorMailId);
+					$email = MailContents::instance()->findById($errorMailId);
 					if ($email instanceof MailContent){
 						Logger::log("failed to send mail: ".$e->getMessage()."\n".$email->getEditUrl());
 						Logger::log($e->getTraceAsString());
@@ -1155,67 +1175,66 @@ class MailController extends ApplicationController {
 			return;
 		}
 
-		if (!function_exists('imap_open')) {
-			flash_error(lang('php-imap extension not installed'));
-			ajx_current("empty");
-			return;
-		}
-
 		$id = get_id();
-		$account = MailAccounts::findById($id);
+		$account = MailAccounts::instance()->findById($id);
 
 		if(!($account instanceof MailAccount)) {
 			flash_error(lang('mailAccount dnx'));
 			ajx_current("empty");
 			return;
 		}
-
-		$pass = $account->getSyncPass();
-		$server = $account->getSyncServer();
-		$folder = $account->getSyncFolder();
-		$address = $account->getSyncAddr();
-		if($pass == null || $server == null || $folder == null || $address == null) {
+		if (!$account->getIsImap()) {
 			flash_error(lang('cant sync account'));
 			ajx_current("empty");
 			return;
 		}
+
+		// prevent connection close if there are too many emails to send to server
+		set_time_limit(0);
+		ini_set("memory_limit", "512M");
+
 		$conditions = array("conditions" => array("`sync`=0 AND `state` = 3 AND `account_id` =".$account->getId()));
-
-		$check_sync_box = MailUtilities::checkSyncMailbox($server, $account->getSyncSsl(), $account->getOutgoingTrasnportType(), $account->getSyncSslPort(), $folder, $address, $pass);
-
-		if ($check_sync_box){
-			$sent_mails = MailContents::findAll($conditions);
-			if (count($sent_mails)==0){
-				flash_success(lang('mails on imap acc already sync'));
-				ajx_current("empty");
-				return;
-			}
-			foreach ($sent_mails as $mail){
-				try{
-					DB::beginWork();
-					$content = $mail->getContent();
-					MailUtilities::sendToServerThroughIMAP($server, $account->getSyncSsl(), $account->getOutgoingTrasnportType(), $account->getSyncSslPort(), $folder, $address, $pass, $content);
-					$mail->setSync(true);
-					$mail->save();
-					DB::commit();
-				}
-				catch(Exception $e){
-					DB::rollback();
-				}
-			}
-			flash_success(lang('sync complete'));
-			ajx_current("empty");
-			return;
-		}else{
-			flash_error(lang('invalid sync settings'));
+		$sent_mails = MailContents::instance()->findAll($conditions);
+		
+		if (count($sent_mails)==0){
+			flash_success(lang('mails on imap acc already sync'));
 			ajx_current("empty");
 			return;
 		}
+
+		$mu = new MailUtilities();
+		// connect to server using imap
+		$imap = $account->imapConnect();
+		$login_ret = $account->imapLogin($imap);
+		if (PEAR::isError($login_ret)) {
+			debug_log("IMAP login error: ".$login_ret->getMessage(), "sent_emails_sync.log");
+			throw new Exception($login_ret->getMessage());
+		}
+
+		// send each mail to the sent folder of the mail account in the mail server
+		foreach ($sent_mails as $mail){
+			try{
+				DB::beginWork();
+				$content = $mail->getContent();
+				
+				$appended = $mu->appendMailThroughIMAP($account, $mail, $content, $imap);
+				debug_log("mail_id=".$mail->getId()." - appended=$appended", "sent_emails_sync.log");
+				
+				DB::commit();
+			}
+			catch(Exception $e){
+				DB::rollback();
+			}
+		}
+		flash_success(lang('sync complete'));
+		ajx_current("empty");
+		return;
+		
 	}
 
 	function mark_as_unread() {
 		ajx_current("empty");
-		$email = MailContents::findById(array_var($_GET, 'id', 0));
+		$email = MailContents::instance()->findById(array_var($_GET, 'id', 0));
 		if ($email instanceof MailContent) {
 			$object_controler = new ObjectController();
 			$object_controler->do_mark_as_read_unread_objects(array($email->getId()), false);
@@ -1284,7 +1303,7 @@ class MailController extends ApplicationController {
 	 */
 	function view() {
 		$this->addHelper('textile');
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -1331,11 +1350,13 @@ class MailController extends ApplicationController {
 			}
 			ini_set('memory_limit', $old_memory_limit);
 		} else {
-			MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+			
+			$content1 = $email->getContent(); 
+			MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 			$parsed_attachments = array_var($parsedEmail, "Attachments", array());
 			$parsed_attachments = array_merge($parsed_attachments, array_var($parsedEmail, "Related", array()));
 
-			if ($parsedEmail['Type'] == 'text' && $parsedEmail['SubType'] == 'calendar') {
+			if ($parsedEmail['Type'] == 'text' && isset($parsedEmail['SubType']) && $parsedEmail['SubType'] == 'calendar') {
 				$attach = array(
 						'Data' => $parsedEmail['Data'],
 						'Type' => 'text/calendar',
@@ -1343,7 +1364,6 @@ class MailController extends ApplicationController {
 				);
 				$parsed_attachments[] = $attach;
 			}
-
 			if (!empty($parsed_attachments)) {
 				$attachments = $parsed_attachments;
 			} else if ($email->getHasAttachments() && !in_array($parsedEmail['Type'], array('html', 'text', 'delivery-status')) && isset($parsedEmail['FileName'])) {
@@ -1381,6 +1401,26 @@ class MailController extends ApplicationController {
 					//break;
 				}
 
+				if (array_var($attach, 'FileName') == 'winmail.dat') {
+                    file_put_contents('tmp/attachment.dat', $attach["Data"]);
+					chdir(ROOT . '/tmp/');
+
+					//Get the name of the file.
+					$cmd = TNEF_LIBRARY . " attachment.dat --list";
+					$result = "";
+					$return_var = 0;
+					exec($cmd, $result, $return_var);
+					$file_name_extracted = strtok($result[0], '|');
+
+					//Extract it from .dat to the original value
+					$cmd = TNEF_LIBRARY . " attachment.dat --overwrite";
+					$result = "";
+					$return_var = 0;
+					exec($cmd, $result, $return_var);
+					$attach['FileName'] = $file_name_extracted;
+					tpl_assign('winmailDat','1');
+                }
+
 				// if attachment is an email add the email attachments to the view
 				if (array_var($attach, 'Type') == 'message') {
 
@@ -1390,7 +1430,7 @@ class MailController extends ApplicationController {
 				}
 
 				if (!array_var($attach, 'FileName')) {
-					$attach['FileName'] = 'ForwardedMessage.eml';
+					$attach = $this->fill_attachment_name_from_content($attach, $email);
 				}
 
 			 	$attach['size'] = format_filesize(strlen($attach["Data"]));
@@ -1405,7 +1445,6 @@ class MailController extends ApplicationController {
 			$parts_array = array_var($decoded, 0, array('Parts' => ''));
 			$email->setBodyHtml(self::rebuild_body_html($email->getBodyHtml(), array_var($parts_array, 'Parts'), $tmp_folder) . $additional_body);
 		}
-
 		tpl_assign('attachments', $attachments);
 		ajx_extra_data(array("title" => $email->getSubject(), 'icon' => 'ico-email'));
 		ajx_set_no_toolbar(true);
@@ -1420,6 +1459,36 @@ class MailController extends ApplicationController {
 		}
 		ApplicationReadLogs::createLog($email, null , ApplicationReadLogs::ACTION_READ);
 	}
+
+
+	private function fill_attachment_name_from_content(&$attach, $email) {
+		
+		$file_name = null;
+		// set a default name = email subject
+		$base_file_name = clean($email->getSubject());
+
+		// save attachment in filesystem so we can analyze it
+		$tmp_attach_path = ROOT . '/tmp/att';
+		file_put_contents($tmp_attach_path, $attach['Data']);
+
+		// get the mime type from the file content
+		$mime_type = mime_content_type($tmp_attach_path);
+		if ($mime_type) {
+			// get the extension using the mime type and build a default file name
+			$extension = Mime_Types::instance()->get_extension($mime_type);
+			$file_name = $base_file_name . "." . $extension;
+		}
+
+		// if we couldn't find the type and name of the file, then assign "UnknownFile.txt" as the name
+		if (!$file_name) {
+			$file_name = 'UnknownFile.txt';
+		}
+
+		$attach['FileName'] = $file_name;
+		
+		return $attach;
+	}
+
 
 	/**
 	 * Images that are attachments are saved to the filesystem and the links to them are rebuilt
@@ -1475,7 +1544,7 @@ class MailController extends ApplicationController {
 			ajx_current("empty");
 			return;
 		}
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if ($email && $email->getState() == 2) { // if mc is Draft
 			$this->delete();
 		}
@@ -1495,7 +1564,7 @@ class MailController extends ApplicationController {
 			ajx_current("empty");
 			return;
 		}
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent || $email->getIsDeleted()){
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -1530,8 +1599,10 @@ class MailController extends ApplicationController {
 	 */
 	function download_attachment() {
 		$emailId = array_var($_GET, 'email_id');
-		$email = MailContents::findById($emailId);
+		$email = MailContents::instance()->findById($emailId);
 		$attId = array_var($_GET, 'attachment_id');
+		$attachFileGet = array_var($_GET, 'fileAttachName');
+		$winmailtype = array_var($_GET, 'winmailtype');
 
 		if ($email->getState() >= 200) {
 			$attachments = self::readAttachmentsFromFileSystem($email, $att_ver);
@@ -1543,7 +1614,10 @@ class MailController extends ApplicationController {
 			$name_field = "name";
 
 		} else {
-			MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+
+			$emailContent = $email->getContent();
+			MailUtilities::parseMail($emailContent, $decoded, $parsedEmail, $warnings);
+      
 			$parsed_attachments = array_var($parsedEmail, "Attachments", array());
 			$parsed_attachments = array_merge($parsed_attachments, array_var($parsedEmail, "Related", array()));
 
@@ -1558,7 +1632,6 @@ class MailController extends ApplicationController {
 
 			if (isset($parsed_attachments[$attId])) {
 				$attachment = $parsed_attachments[$attId];
-
 			} else {
 
 				if ($email->getHasAttachments() && !in_array($parsedEmail['Type'], array('html', 'text', 'delivery-status')) && isset($parsedEmail['FileName'])) {
@@ -1599,7 +1672,7 @@ class MailController extends ApplicationController {
 
 			// add default name to email attachment if it doesn't have name
 			if (!array_var($attachment, 'FileName')) {
-				$attachment['FileName'] = 'ForwardedMessage.eml';
+				$attachment = $this->fill_attachment_name_from_content($attachment, $email);
 			}
 		}
 
@@ -1621,6 +1694,16 @@ class MailController extends ApplicationController {
 		$filesize = strlen($content);
 		$inline = false;
 
+		if ($winmailtype == '1') {
+			$file_att_name = $attachFileGet;
+			$file_url = ROOT . '/tmp/' . $file_att_name;
+			header('Content-Type: application/octet-stream');
+			header("Content-Transfer-Encoding: Binary"); 
+			header("Content-disposition: attachment; filename=\"" . basename($file_url) . "\""); 
+			readfile($file_url); 
+			die();
+		}
+		
 		download_contents($content, $typeString, $filename, $filesize, !$inline);
 		die();
 	} // download_file
@@ -1635,7 +1718,7 @@ class MailController extends ApplicationController {
 			ajx_current("empty");
 			return;
 		}
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -1675,7 +1758,7 @@ class MailController extends ApplicationController {
 			foreach ($ids as $id) {
 				$parts = explode(":", $id);
 				if (count($parts) > 1) $id = $parts[1];
-				$email = MailContents::findById($id);
+				$email = MailContents::instance()->findById($id);
 				if (!$email instanceof MailContent || $email->getIsdeleted() || !$email->canEdit(logged_user())) continue;
 
 				if ($this->do_unclassify($email)) $count++;
@@ -1715,9 +1798,10 @@ class MailController extends ApplicationController {
 				*/
 				// unclassify attachments, remove all allowed ws, then if file has no ws -> delete it
 				if ($email->getHasAttachments()) {
-					MailUtilities::parseMail($email->getContent(),$decoded,$parsedEmail,$warnings);
+					$content1 = $email->getContent(); 
+					MailUtilities::parseMail($content1,$decoded,$parsedEmail,$warnings);
 					if (isset($parsedEmail['Attachments'])) {
-						$files = ProjectFiles::findAll(array('conditions' => 'mail_id = '.$email->getId()));
+						$files = ProjectFiles::instance()->findAll(array('conditions' => 'mail_id = '.$email->getId()));
 						foreach ($files as $file) {
 							// TODO Feng 2 members
 							/*
@@ -1748,7 +1832,7 @@ class MailController extends ApplicationController {
 			ajx_current("empty");
 			return;
 		}
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent){
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -1773,7 +1857,8 @@ class MailController extends ApplicationController {
 
 		$only_attachments = array_var($_REQUEST, 'only_attachments');
 
-		MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+		$content1 = $email->getContent(); 
+		MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 		if (array_var($_POST,'submit')){
 			$members = json_decode(array_var($_POST, 'members'));
 
@@ -1813,7 +1898,9 @@ class MailController extends ApplicationController {
 
 			if (is_null($classification_data)) {
 				$classification_data = array();
-				MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+				$content1 = $email->getContent(); 
+				MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
+				
 				for ($j=0; $j < count(array_var($parsedEmail, "Attachments", array())); $j++) {
 					$classification_data["att_".$j] = true;
 				}
@@ -1833,12 +1920,12 @@ class MailController extends ApplicationController {
 				$previous_member_ids = $email->getMemberIds();
 
 				if (count($members) > 0) {
-					$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::findById($email->getAccount()->getContactId());
+					$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::instance()->findById($email->getAccount()->getContactId());
 
 					if (!$only_attachments) {
 						// if this is executed after receving don't check permissions, because members can be filtered by the user who triggered the mail download
 						if ($after_receiving) {
-							$member_objects = Members::findAll(array("conditions" => "id IN(".implode(',', $members).")"));
+							$member_objects = Members::instance()->findAll(array("conditions" => "id IN(".implode(',', $members).")"));
 							$email->addToMembers($member_objects, null, true); // set $is_multiple=true to avoid the mail rule creation form
 							$email->addToSharingTable();
 						} else {
@@ -1852,14 +1939,15 @@ class MailController extends ApplicationController {
 							user_config_option('mail_drag_drop_prompt')=='prompt' && intval(array_var($_REQUEST, 'classify_attachments')) > 0) ) {
 
 						if (count($members) > 0) {
-							$member_instances = Members::findAll(array('conditions' => 'id IN ('.implode(',',$members).')'));
-							if (!$parsedEmail) MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+							$member_instances = Members::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$members).')'));
+							$content1 = $email->getContent(); 
+							if (!$parsedEmail) MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 							$this->classifyFile($classification_data, $email, $parsedEmail, $member_instances, false, !$after_receiving);
 						}
 					}
 					$new_member_ids = $members;
 				} else {
-					$email->removeFromMembers(logged_user() instanceof contact ? logged_user() : Contacts::findById($email->getAccount()->getContactId(), $email->getMembers()));
+					$email->removeFromMembers(logged_user() instanceof contact ? logged_user() : Contacts::instance()->findById($email->getAccount()->getContactId(), $email->getMembers()));
 					$new_member_ids = array();
 				}
 
@@ -1873,18 +1961,19 @@ class MailController extends ApplicationController {
 					$conversation = MailContents::getMailsFromConversation($email);
 
 					if (count($members) > 0) {
-						$member_instances = Members::findAll(array('conditions' => 'id IN ('.implode(',',$members).')'));
+						$member_instances = Members::instance()->findAll(array('conditions' => 'id IN ('.implode(',',$members).')'));
 						foreach ($conversation as $conv_email) {
 							// dont process orignal email again
 							if ($conv_email->getId() == $email->getId()) {
 								continue;
 							}
 
-							$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::findById($conv_email->getAccount()->getContactId());
+							$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::instance()->findById($conv_email->getAccount()->getContactId());
 							if (!$only_attachments) {
 								$ctrl->add_to_members($conv_email, $members, $account_owner, null, $after_receiving); // if $after_receiving set $is_multiple=true to avoid the mail rule creation form
 							}
-							MailUtilities::parseMail($conv_email->getContent(), $decoded, $parsedEmail, $warnings);
+							$content1 = $conv_email->getContent(); 
+							MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 
 							if ($conv_email->getHasAttachments()) {
 								if ($after_receiving && user_config_option('auto_classify_attachments')
@@ -1899,7 +1988,7 @@ class MailController extends ApplicationController {
 					} else {
 						if (!$after_receiving) {
 							foreach ($conversation as $conv_email) {
-								$conv_email->removeFromMembers(logged_user() instanceof contact ? logged_user() : Contacts::findById($email->getAccount()->getContactId(), $conv_email->getMembers()));
+								$conv_email->removeFromMembers(logged_user() instanceof contact ? logged_user() : Contacts::instance()->findById($email->getAccount()->getContactId(), $conv_email->getMembers()));
 							}
 						}
 					}
@@ -1957,7 +2046,7 @@ class MailController extends ApplicationController {
 			//throw new Exception(lang('no attachments found for email'));
 		}
 
-		$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::findById($email->getAccount()->getContactId());
+		$account_owner = logged_user() instanceof contact ? logged_user() : Contacts::instance()->findById($email->getAccount()->getContactId());
 
 		for ($c = 0; $c < count($classification_data); $c++) {
 			if (isset($classification_data["att_".$c]) && $classification_data["att_".$c] && isset($parsedEmail["Attachments"][$c])) {
@@ -1997,9 +2086,9 @@ class MailController extends ApplicationController {
 						}
 
 						if ($file_exists > 0) {
-							$file = ProjectFiles::findById($file_exists);
+							$file = ProjectFiles::instance()->findById($file_exists);
 						} else {
-							$file = ProjectFiles::findOne(array('conditions' => "mail_id = ".$email->getId()." AND o.name = ".DB::escape($fName).""));
+							$file = ProjectFiles::instance()->findOne(array('conditions' => "mail_id = ".$email->getId()." AND o.name = ".DB::escape($fName).""));
 						}
 
 						if ($use_transaction) {
@@ -2020,7 +2109,7 @@ class MailController extends ApplicationController {
 						if($remove_previous_members){
 							$dim_ids = array(0);
 							foreach ($members as $m) $dim_ids[$m->getDimensionId()] = $m->getDimensionId();
-							ObjectMembers::delete('`object_id` = ' . $file->getId() . ' AND `member_id` IN (SELECT `m`.`id` FROM `'.TABLE_PREFIX.'members` `m` WHERE `m`.`dimension_id` IN ('.implode(',',$dim_ids).'))');
+							ObjectMembers::instance()->delete('`object_id` = ' . $file->getId() . ' AND `member_id` IN (SELECT `m`.`id` FROM `'.TABLE_PREFIX.'members` `m` WHERE `m`.`dimension_id` IN ('.implode(',',$dim_ids).'))');
 						}
 
 						$file->addToMembers($members);
@@ -2098,8 +2187,8 @@ class MailController extends ApplicationController {
 	}
 
 	function showContents(){
-		$email = MailContents::findById(get_id());
-		$mailContents = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
+		$mailContents = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent){
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -2128,7 +2217,7 @@ class MailController extends ApplicationController {
 		}
 
 		$content = file_get_contents($filename);
-		$encoding = detect_encoding($content, array('UTF-8', 'ISO-8859-1', 'WINDOWS-1252'));
+		$encoding = mb_detect_encoding($content);
 
 		header("Expires: " . gmdate("D, d M Y H:i:s", mktime(date("H") + 2, date("i"), date("s"), date("m"), date("d"), date("Y"))) . " GMT");
 		header("Last-Modified: " . gmdate("D, d M Y H:i:s") . " GMT");
@@ -2163,27 +2252,12 @@ class MailController extends ApplicationController {
 	}
 
 
-	function outbox_popup() {
-		
-		$outbox_total = MailContents::countOutboxEmails($this->get_account_ids(), 'outbox')['outbox_total'];
-		
-		$outbox_not_empty = $outbox_total > 0;
-		if($outbox_not_empty) {
-			evt_add("popup", array(
-				'title' => lang("mails_in_outbox reminder"),
-				'message' => lang("mails_in_outbox reminder desc", $outbox_total),
-				'type' => 'reminder',
-				'sound' => 'info'
-			));
-		}
-	}
-	
 	function checkmail() {
 		@set_time_limit(0);
 
 		$account_id = array_var($_GET, 'account_id');
 		if (is_numeric($account_id) && $account_id > 0) {
-			$accounts = MailAccounts::findAll(array('conditions' => "id='$account_id'"));
+			$accounts = MailAccounts::instance()->findAll(array('conditions' => "id='$account_id'"));
 		} else {
 			$accounts = MailAccounts::getMailAccountsByUser(logged_user());
 		}
@@ -2194,6 +2268,7 @@ class MailController extends ApplicationController {
 		if (is_array($accounts) && count($accounts) > 0){
 			// check a maximum of $max emails per account
 			$max = config_option("user_email_fetch_count", 10);
+			// Logger::log_r('MailController::checkmail()');
 			MailUtilities::getmails($accounts, $err, $succ, $errAccounts, $mailsReceived, $max);
 
 			$errMessage = "";
@@ -2219,8 +2294,6 @@ class MailController extends ApplicationController {
 
 		ajx_add("overview-panel", "reload");
 
-		$this->outbox_popup();
-		
 		return array($err, $errMessage);
 	}
 
@@ -2267,7 +2340,7 @@ class MailController extends ApplicationController {
 
 		if(is_array(array_var($_POST, 'mailAccount'))) {
 			$email_address = array_var(array_var($_POST, 'mailAccount'), 'email_addr');
-			/*if (MailAccounts::findOne(array('conditions' => "`email` = '$email_address'")) != null) {
+			/*if (MailAccounts::instance()->findOne(array('conditions' => "`email` = '$email_address'")) != null) {
 				flash_error(lang('email address already exists'));
 				ajx_current("empty");
 				return;
@@ -2279,13 +2352,23 @@ class MailController extends ApplicationController {
 					$mail_account_user = logged_user();
 				}
 				else{
-					$mail_account_user = Contacts::findById($selected_user);
+					$mail_account_user = Contacts::instance()->findById($selected_user);
 				}
 
 				$mailAccount_data['sync_ssl'] = array_var($mailAccount_data, 'sync_ssl') == "checked";
 				$mailAccount_data['contact_id'] = $mail_account_user->getId();
 
 				$mailAccount_data['incoming_ssl_verify_peer'] = array_var($mailAccount_data, 'incoming_ssl_verify_peer') == "checked";
+
+				if (isset($_SESSION['oauth2_access_token'])) {
+					// if user already connected to the account using OAuth2, then get the access token from the session and save it
+					$mailAccount_data['oauth2_access_token'] = $_SESSION['oauth2_access_token'];
+					$mailAccount_data['oauth2_provider'] = $_SESSION['oauth2_provider'];
+					$mailAccount_data['uses_oauth2'] = $_SESSION['uses_oauth2'];
+					$_SESSION['oauth2_access_token'] = null;
+					$_SESSION['oauth2_provider'] = null;
+					$_SESSION['uses_oauth2'] = null;
+				}
 
 				if (!array_var($mailAccount_data, 'del_mails_from_server', false)) $mailAccount_data['del_from_server'] = 0;
 				if (!array_var($mailAccount_data, 'mark_read_on_server', false)) $mailAccount_data['mark_read_on_server'] = 0;
@@ -2294,11 +2377,7 @@ class MailController extends ApplicationController {
 				$mailAccount->setServer(trim($mailAccount->getServer()));
 				$mailAccount->setPassword(MailUtilities::ENCRYPT_DECRYPT($mailAccount->getPassword()));
 				$mailAccount->setSmtpPassword(MailUtilities::ENCRYPT_DECRYPT($mailAccount->getSmtpPassword()));
-				$outbox_folder = array_var($_POST, 'outbox_select_box');
-				if (config_option("sent_mails_sync") && isset($outbox_folder)){
-					$mailAccount->setSyncPass(MailUtilities::ENCRYPT_DECRYPT($mailAccount_data['sync_pass']));
-					$mailAccount->setSyncFolder($outbox_folder);
-				}
+				
 
 				$member_ids = json_decode(array_var($_POST, 'members'));
 				$member_ids_str = "";
@@ -2336,7 +2415,7 @@ class MailController extends ApplicationController {
 					if (is_array($sent_folders_data)) {
 						foreach ($sent_folders_data as $sent_name => $folder_data) {
 							$folder_name = str_replace(array('¡','!'), array('[',']'), $sent_name);//to avoid a mistaken array if name contains [
-							$acc_folder = MailAccountImapFolders::findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name));
+							$acc_folder = MailAccountImapFolders::instance()->findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name));
 							if (!$acc_folder instanceof MailAccountImapFolder) {
 								$acc_folder = new MailAccountImapFolder();
 								$acc_folder->setAccountId($mailAccount->getId());
@@ -2357,8 +2436,8 @@ class MailController extends ApplicationController {
 							$real_folders = array();
 						}
 						foreach ($real_folders as $folder_data) {
-							$folder_name = array_var($folder_data['name']);
-							if (!MailAccountImapFolders::findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name))) {
+							$folder_name = array_var($folder_data, 'name');
+							if ($folder_name && !MailAccountImapFolders::instance()->findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name))) {
 								$acc_folder = new MailAccountImapFolder();
 								$acc_folder->setAccountId($mailAccount->getId());
 								$acc_folder->setFolderName($folder_name);
@@ -2439,7 +2518,7 @@ class MailController extends ApplicationController {
 		}
 		$this->setTemplate('add_account', $this->plugin_name);
 
-		$mailAccount = MailAccounts::findById(get_id());
+		$mailAccount = MailAccounts::instance()->findById(get_id());
 		if(!($mailAccount instanceof MailAccount)) {
 			flash_error(lang('mailAccount dnx'));
 			ajx_current("empty");
@@ -2503,17 +2582,8 @@ class MailController extends ApplicationController {
 				  'get_read_state_from_server' => $mailAccount->getGetReadStateFromServer(),
 		          'outgoing_transport_type' => $mailAccount->getOutgoingTrasnportType(),
 			); // array
-			if(config_option('sent_mails_sync')){
-				$sync_details = array('sync_server' => $mailAccount->getSyncServer(),
-				  'sync_addr' => $mailAccount->getSyncAddr(),
-				  'sync_pass' => MailUtilities::ENCRYPT_DECRYPT($mailAccount->getSyncPass()),
-				  'sync_ssl' => $mailAccount->getSyncSsl(),
-				  'sync_sslport' => $mailAccount->getSyncSslPort());
-				$mailAccount_data = array_merge ($mailAccount_data, $sync_details);
-			}
+			
 		} else {
-			if (!isset($mailAccount_data['sync_ssl']))
-				$mailAccount_data['sync_ssl'] = false;
 			if (!isset($mailAccount_data['incoming_ssl']))
 				$mailAccount_data['incoming_ssl'] = false;
 			if (!isset($mailAccount_data['is_default']))
@@ -2531,7 +2601,7 @@ class MailController extends ApplicationController {
 					$selected_user = $mailAccount->getContactId();
 				}
 
-				$mail_account_user = Contacts::findById($selected_user);
+				$mail_account_user = Contacts::instance()->findById($selected_user);
 				if($mail_account_user instanceof Contact){
 					$old_user_id = $mailAccount->getContactId();
 					if ($old_user_id != $mail_account_user->getId())
@@ -2553,11 +2623,7 @@ class MailController extends ApplicationController {
 					$mailAccount->setServer(trim($mailAccount->getServer()));
 					$mailAccount->setPassword(MailUtilities::ENCRYPT_DECRYPT($mailAccount->getPassword()));
 					$mailAccount->setSmtpPassword(MailUtilities::ENCRYPT_DECRYPT($mailAccount->getSmtpPassword()));
-					$outbox_folder = array_var($_POST, 'outbox_select_box');
-					if (config_option("sent_mails_sync") && isset($outbox_folder)){
-						$mailAccount->setSyncPass(MailUtilities::ENCRYPT_DECRYPT($mailAccount_data['sync_pass']));
-						$mailAccount->setSyncFolder($outbox_folder);
-					}
+					
 
 
 					//in case there is a new owner of the email account
@@ -2572,7 +2638,7 @@ class MailController extends ApplicationController {
 						if (is_array($sent_folders_data)) {
 							foreach ($sent_folders_data as $sent_name => $folder_data) {
 								$folder_name = str_replace(array('¡','!'), array('[',']'), $sent_name);//to avoid a mistaken array if name contains [
-								$acc_folder = MailAccountImapFolders::findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name));
+								$acc_folder = MailAccountImapFolders::instance()->findById(array('account_id' => $mailAccount->getId(), 'folder_name' => $folder_name));
 								if (!$acc_folder instanceof MailAccountImapFolder) {
 									$acc_folder = new MailAccountImapFolder();
 									$acc_folder->setAccountId($mailAccount->getId());
@@ -2602,7 +2668,7 @@ class MailController extends ApplicationController {
 					if (is_array($user_access) && count($user_access) > 0) {
 						// foreach user access level submitted create a new MailAccountContact
 						foreach ($user_access as $user_id => $access) {
-							$user = Contacts::findById($user_id);
+							$user = Contacts::instance()->findById($user_id);
 							if (!$user instanceof Contact) continue;
 							if ($access != 'none') {
 								$account_user = MailAccountContacts::instance()->getByAccountAndContact($mailAccount, $user);
@@ -2718,7 +2784,7 @@ class MailController extends ApplicationController {
 			ajx_current("empty");
 			return;
 		}
-		$account = MailAccounts::findById(get_id());
+		$account = MailAccounts::instance()->findById(get_id());
 		if (!$account instanceof MailAccount) {
 			flash_error(lang('error delete mail account'));
 			ajx_current("empty");
@@ -2795,7 +2861,7 @@ class MailController extends ApplicationController {
 			flash_error('Invalid parameter.');
 			ajx_current("empty");
 		}
-		$original_mail = MailContents::findById(get_id('id',$_GET));
+		$original_mail = MailContents::instance()->findById(get_id('id',$_GET));
 		if(! $original_mail){
 			flash_error('Invalid parameter.');
 			ajx_current("empty");
@@ -2834,7 +2900,7 @@ class MailController extends ApplicationController {
 			flash_error('Invalid parameter.');
 			ajx_current("empty");
 		}
-		$original_mail = MailContents::findById(get_id('id',$_GET));
+		$original_mail = MailContents::instance()->findById(get_id('id',$_GET));
 		if(! $original_mail){
 			flash_error('Invalid parameter.');
 			ajx_current("empty");
@@ -2894,42 +2960,6 @@ class MailController extends ApplicationController {
 	}//edit_mail
 
 
-	function get_account_ids($user = null){
-		
-		if(!$user) $user = logged_user();
-
-		$accounts = MailAccounts::getMailAccountsByUser($user);
-		if(sizeof($accounts) > 0) {
-			$account_ids = array();
-
-			foreach ($accounts as $acc) {
-				$account_ids[] = $acc->getId();
-			}
-
-			return implode(",",$account_ids);
-		}				
-
-		return;
-
-	}
-
-	function get_count(){	
-		
-		ajx_current("empty");
-		
-		$state = array_var($_GET, 'state');
-		$acc_ids = $this->get_account_ids();
-		
-		if($acc_ids) {
-			$res = MailContents::countOutboxEmails($acc_ids, $state);
-		} else {
-			$res = 0;
-		}
-			
-		ajx_extra_data($res);	
-
-	}
-	
 	/**
 	 * Lists emails.
 	 *
@@ -3147,7 +3177,7 @@ class MailController extends ApplicationController {
 				}
 			}
 		}*/
-/* @var $msg MailContent */
+      /* @var $msg MailContent */
 
 		$persons_dim = Dimensions::findByCode('feng_persons');
 		$persons_dim_id = $persons_dim instanceof Dimension ? $persons_dim->getId() : "0";
@@ -3217,7 +3247,7 @@ class MailController extends ApplicationController {
 
 					switch ($type){
 						case "email":
-							$email = MailContents::findById($id);
+							$email = MailContents::instance()->findById($id);
 							if ($email instanceof MailContent && $email->canDelete(logged_user())) {
 								if ($email->getState() == 2) {
 									// we are deleting a draft email
@@ -3266,7 +3296,7 @@ class MailController extends ApplicationController {
 					$type = $attributes["types"][$i];
 					switch ($type){
 						case "email":
-							$email = MailContents::findById($id);
+							$email = MailContents::instance()->findById($id);
 							if ($email instanceof MailContent && !$email->isDeleted() && $email->canEdit(logged_user())){
 								$this->do_unclassify($email);
 								ApplicationLogs::createLog($email, $email->getWorkspaces(), ApplicationLogs::ACTION_TAG,false,null,true,$tag);
@@ -3297,7 +3327,7 @@ class MailController extends ApplicationController {
 					$type = $attributes["types"][$i];
 					switch ($type){
 						case "email":
-							$email = MailContents::findById($id);
+							$email = MailContents::instance()->findById($id);
 							if ($email instanceof MailContent) {
 								if (user_config_option('show_emails_as_conversations', true, logged_user()->getId())) {
 									$emails_in_conversation = MailContents::getMailsFromConversation($email);
@@ -3329,7 +3359,7 @@ class MailController extends ApplicationController {
 
 					switch ($type){
 						case "email":
-							$email = MailContents::findById($id);
+							$email = MailContents::instance()->findById($id);
 							if ($email instanceof MailContent) {
 								if (user_config_option('show_emails_as_conversations', true, logged_user()->getId())) {
 									$emails_in_conversation = MailContents::getMailsFromConversation($email);
@@ -3376,7 +3406,7 @@ class MailController extends ApplicationController {
 	}
 
 	function addEmailToWorkspace($id, $destination, $mantainWs = true) {
-		$email = MailContents::findById($id);
+		$email = MailContents::instance()->findById($id);
 		if ($email instanceof MailContent && $email->canEdit(logged_user())){
 			if (!$mantainWs) {
 				$removed = "";
@@ -3423,7 +3453,7 @@ class MailController extends ApplicationController {
 		$account->setServer($server);
 
 		$checked_folders = array();
-		$real_account = MailAccounts::findById($account_id);
+		$real_account = MailAccounts::instance()->findById($account_id);
 		if ($real_account instanceof MailAccount) {
 			$folders_to_check = MailAccountImapFolders::getMailAccountImapFolders($real_account->getId());
 			if (is_array($folders_to_check) && count($folders_to_check) > 0) {
@@ -3499,7 +3529,7 @@ class MailController extends ApplicationController {
 		try {
 			if ($account->getIsImap()) {
 				$imap = $account->imapConnect();
-				$ret = $imap->login($account->getEmail(), MailUtilities::ENCRYPT_DECRYPT($account->getPassword()),null,false);
+				$ret = $account->imapLogin($imap); 
 				if ($ret !== true || PEAR::isError($ret)) {
 					throw new Exception($ret->getMessage());
 				}
@@ -3565,7 +3595,7 @@ class MailController extends ApplicationController {
 	}
 
 	function get_conversation_info() {
-		$email = MailContents::findById(array_var($_GET, 'id'));
+		$email = MailContents::instance()->findById(array_var($_GET, 'id'));
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -3616,7 +3646,7 @@ class MailController extends ApplicationController {
 
 	function print_mail() {
 		$this->setLayout("html");
-		$email = MailContents::findById(get_id());
+		$email = MailContents::instance()->findById(get_id());
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			ajx_current("empty");
@@ -3634,7 +3664,8 @@ class MailController extends ApplicationController {
 		}
 
 		if ($email->getBodyHtml() != '') {
-			MailUtilities::parseMail($email->getContent(), $decoded, $parsedEmail, $warnings);
+			$content1 = $email->getContent(); 
+			MailUtilities::parseMail($content1, $decoded, $parsedEmail, $warnings);
 			$tmp_folder = "/tmp/" . $email->getAccountId() . "_" . logged_user()->getId()."_". $email->getId() . "_temp_mail_content_res";
 			if (is_dir(ROOT . $tmp_folder)) remove_dir(ROOT . $tmp_folder);
 			if ($parts_container = array_var($decoded, 0)) {
@@ -3650,7 +3681,7 @@ class MailController extends ApplicationController {
 	function download() {
 		$this->setTemplate(get_template_path('back'));
 		$id = array_var($_GET, 'id');
-		$email = MailContents::findById($id);
+		$email = MailContents::instance()->findById($id);
 		if (!$email instanceof MailContent) {
 			flash_error(lang('email dnx'));
 			return;
@@ -3691,7 +3722,7 @@ class MailController extends ApplicationController {
                     $spam_email = MailSpamFilters::getRow($email);
                     if ($spam_email)
                     {
-                        $spam_filter = MailSpamFilters::findById($spam_email[0]->getId());
+                        $spam_filter = MailSpamFilters::instance()->findById($spam_email[0]->getId());
                         $spam_filter->setSpamState($spam_state);
                         $spam_filter->save();
                     }

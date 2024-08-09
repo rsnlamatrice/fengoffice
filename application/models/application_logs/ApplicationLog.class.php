@@ -17,7 +17,7 @@ class ApplicationLog extends BaseApplicationLog {
 	 * @return Contact
 	 */
 	function getTakenBy() {
-		return Contacts::findById($this->getTakenById());
+		return Contacts::instance()->findById($this->getTakenById());
 	} // getTakenBy
 
 	
@@ -71,6 +71,46 @@ class ApplicationLog extends BaseApplicationLog {
 		$now->getMonth() == $day_after->getMonth() &&
 		$now->getYear() == $day_after->getYear();
 	} // isYesterday
+
+
+	/**
+	 * @return true if there are details associated to this log, saved in application_log_details table
+	 */
+	function hasDetails() {
+		if (in_array($this->getAction(), array(ApplicationLogs::ACTION_LINK, ApplicationLogs::ACTION_UNLINK))) {
+			return false;
+		}
+		return ApplicationLogDetails::countLogDetails($this->getId()) > 0;
+	}
+
+	/**
+	 * @return array the details associated to this log
+	 */
+	function getDetails() {
+		return ApplicationLogDetails::getLogDetails($this->getId());
+	}
+
+	/**
+	 * @return string the formatted text of the request channel value
+	 */
+	function getRequestChannelText() {
+		$text = "";
+
+		if ($this->getRequestChannel() != '') {
+			if (Localization::instance()->lang_exists($this->getRequestChannel())) {
+				$text = lang($this->getRequestChannel());
+			} else {
+				$exploded = explode('-', $this->getRequestChannel());
+				$parts = array();
+				foreach ($exploded as $exp) {
+					$parts[] = ucfirst(trim($exp));
+				}
+				$text = implode(' - ', $parts);
+			}
+		}
+
+		return $text;
+	}
 
 	
 	/**
@@ -149,7 +189,7 @@ class ApplicationLog extends BaseApplicationLog {
 
 	
 	function getActivityData() {
-		$user = Contacts::findById($this->getCreatedById());
+		$user = Contacts::instance()->findById($this->getCreatedById());
 		$object = Objects::findObject($this->getRelObjectId());
 		if (!$user) return false;
 		
@@ -201,7 +241,7 @@ class ApplicationLog extends BaseApplicationLog {
 				if (count($user_ids) < 8) {
 					$users_str = "";
 					foreach ($user_ids as $usid) {
-						$su = Contacts::findById($usid);
+						$su = Contacts::instance()->findById($usid);
 						if ($su instanceof Contact)
 							$users_str .= '<a style="font-weight:bold" href="'.$su->getObjectUrl().'">&nbsp;<span style="padding: 0 0 3px 24px;" class="db-ico ico-unknown ico-user"/>'.clean($su->getObjectName()).'</a>, ';
 					}
@@ -242,16 +282,42 @@ class ApplicationLog extends BaseApplicationLog {
 				if ($object) {
 					return lang('activity ' . $this->getAction(), lang('the '.$object->getObjectTypeName()), $user->getDisplayName(), $object_link, $linked_object instanceof ApplicationDataObject ? lang('the '.$linked_object->getObjectTypeName()) : '', $linked_object_link);
 				}
+				break;
+
+			case ApplicationLogs::ACTION_RELATION_ADDED :
+			case ApplicationLogs::ACTION_RELATION_EDITED :
+			case ApplicationLogs::ACTION_RELATION_REMOVED :
+
+				$related_log = ApplicationLogs::instance()->findById($this->getLogData());
+				if ($related_log instanceof ApplicationLog) {
+
+					$related_object = $related_log->getObject();					
+					if ($related_object instanceof ContentDataObject) {
+	
+						$related_object_url = $related_object->getObjectUrl();
+						if ($related_object instanceof Timeslot) {
+							// as we don't have a view for timeslots then put the link to the history log of it
+							$related_object_url = "javascript:og.render_modal_form('', {c:'object', a:'view_history', params:{id:".$related_object->getId()."}});";
+						}
+						
+						$related_object_link = '<a href="' . $related_object_url . '">&nbsp;<span style="padding: 1px 0 3px 24px;" class="db-ico ico-unknown ico-'. $related_object->getObjectTypeName() .'"/>'. clean($related_object->getObjectName()) .'</a>';
+	
+						return lang('activity ' . $this->getAction(), lang('the '.$object->getObjectTypeName()) . $object_link, $user->getDisplayName(), lang('the '.$related_object->getObjectTypeName()) . $related_object_link);
+					}
+				}
+
+				break;
 				
 			case ApplicationLogs::ACTION_MOVE :
 			case ApplicationLogs::ACTION_COPY :
 				$exploded = explode(";", $this->getLogData());
+				$from_names = array();
+				$to_names = array();
 				foreach ($exploded as $str) {
 					if (str_starts_with($str, "from:")) {
 						$from_ids_csv = str_replace("from:", "", $str);
 						if ($from_ids_csv != '') {
 							$from_rows = DB::executeAll("SELECT name FROM ".TABLE_PREFIX."members WHERE id IN ($from_ids_csv)");
-							$from_names = array();
 							foreach ($from_rows as $r) {
 								$from_names[] = $r['name'];
 							}
@@ -260,7 +326,6 @@ class ApplicationLog extends BaseApplicationLog {
 						$to_ids_csv = str_replace("to:", "", $str);
 						if ($to_ids_csv != '') {
 							$to_rows = DB::executeAll("SELECT name FROM ".TABLE_PREFIX."members WHERE id IN ($to_ids_csv)");
-							$to_names = array();
 							foreach ($to_rows as $r) {
 								$to_names[] = $r['name'];
 							}
@@ -366,7 +431,7 @@ class ApplicationLog extends BaseApplicationLog {
 				$object_link = '<span style="padding: 1px 0 3px 24px;" class="db-ico ico-unknown ico-' . $type . $icon_class . '"/>'.clean($object->getObjectName());
 			}
 		} elseif ($object instanceof Member){
-			$object_type = ObjectTypes::findById($object->getObjectTypeId());
+			$object_type = ObjectTypes::instance()->findById($object->getObjectTypeId());
 			$type = $object_type->getName();
 			$object_url = "";
 			
@@ -430,7 +495,7 @@ class ApplicationLog extends BaseApplicationLog {
 				if (count($user_ids) < 8) {
 					$users_str = "";
 					foreach ($user_ids as $usid) {
-						$su = Contacts::findById($usid);
+						$su = Contacts::instance()->findById($usid);
 						if ($su instanceof Contact) {
 							$users_str .= '<a style="font-weight:bold" href="'.$su->getObjectUrl().'">&nbsp;<span style="padding: 0 0 3px 24px;" class="db-ico ico-unknown ico-user"/>'.clean($su->getObjectName()).'</a>, ';
 						}
@@ -478,6 +543,26 @@ class ApplicationLog extends BaseApplicationLog {
 				if ($object instanceof ContentDataObject) {
 					return lang('activity ' . $this->getAction(), lang('the '.$object->getObjectTypeName()," "), $userName, $object_link, $linked_object instanceof ApplicationDataObject ? lang('the '.$linked_object->getObjectTypeName()) : '', $linked_object_link);
 				}
+				break;
+
+			case ApplicationLogs::ACTION_RELATION_ADDED :
+			case ApplicationLogs::ACTION_RELATION_EDITED :
+			case ApplicationLogs::ACTION_RELATION_REMOVED :
+
+				$related_log = ApplicationLogs::instance()->findById($this->getLogData());
+				if ($related_log instanceof ApplicationLog) {
+
+					$related_object = $related_log->getObject();					
+					if ($related_object instanceof ContentDataObject) {
+	
+						$related_object_link = '<a href="' . $related_object->getObjectUrl() . '">&nbsp;<span style="padding: 1px 0 3px 24px;" class="db-ico ico-unknown ico-'. $related_object->getObjectTypeName() .'"/>'. clean($related_object->getObjectName()) .'</a>';
+	
+						return lang('activity ' . $this->getAction(), lang('the '.$object->getObjectTypeName()) . $object_link, $user->getDisplayName(), lang('the '.$related_object->getObjectTypeName()) . $related_object_link);
+					}
+				}
+
+				break;
+
 			case ApplicationLogs::ACTION_LOGIN :
 			case ApplicationLogs::ACTION_LOGOUT :
 				return lang('activity ' . $this->getAction(), $userName);
@@ -502,7 +587,7 @@ class ApplicationLog extends BaseApplicationLog {
 				$mem_ids = explode(",", $members_ids_csv);
 				if (is_array($mem_ids) && count($mem_ids) > 0) {
 					foreach($mem_ids as $mem_id){
-						$member = Members::findById($mem_id);
+						$member = Members::instance()->findById($mem_id);
 						if($member){
 							$to_str_member .= $member->getName() . ", ";
 						}
@@ -521,7 +606,7 @@ class ApplicationLog extends BaseApplicationLog {
 				
 				if (is_array($mem_ids_from) && count($mem_ids_from) > 0) {
 					foreach($mem_ids_from as $mem_id){
-						$member = Members::findById($mem_id);
+						$member = Members::instance()->findById($mem_id);
 						if($member){
 							$from_str_member .= $member->getName() . ", ";
 						}
@@ -548,7 +633,7 @@ class ApplicationLog extends BaseApplicationLog {
 				$mem_ids = explode(",", $members_ids_csv);
 				if (is_array($mem_ids) && count($mem_ids) > 0) {
 					foreach($mem_ids as $mem_id){
-						$member = Members::findById($mem_id);
+						$member = Members::instance()->findById($mem_id);
 						if($member){
 							$to_str_member .= $member->getName() . ", ";
 						}

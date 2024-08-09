@@ -65,7 +65,7 @@
 	
 	function mail_update_7_8() {
 		
-		$sent_mails = MailContents::findAll(array('conditions' => "`state`=3 AND `has_attachments`=1"));
+		$sent_mails = MailContents::instance()->findAll(array('conditions' => "`state`=3 AND `has_attachments`=1"));
 		foreach ($sent_mails as $mail) {
 			if (!$mail instanceof MailContent) continue;
 			/* @var $mail MailContent */
@@ -348,7 +348,7 @@
 			
 			// update mail account special folders
 			$mu = new MailUtilities();
-			$mail_accounts = MailAccounts::findAll();
+			$mail_accounts = MailAccounts::instance()->findAll();
 			foreach ($mail_accounts as $account) {/* @var $account MailAccount */
 				if ($account->getIsImap()) {
 					$can_detect_special_folders = false;
@@ -400,5 +400,64 @@
 		");
 	}
 	
+	function mail_update_27_28(){
+		DB::execute("
+			update ".TABLE_PREFIX."mail_contents 
+			join ".TABLE_PREFIX."objects fo on(object_id=fo.id)
+			set ".TABLE_PREFIX."mail_contents.state=999
+			where state>=200 and state<210
+			and fo.created_on < NOW() - interval 1 day;
+		");
+	}
 	
-	
+
+	function mail_update_28_29(){
+		DB::execute("
+			ALTER TABLE `".TABLE_PREFIX."mail_account_imap_folder`
+			CHANGE `folder_name` `folder_name` varchar(255) COLLATE 'utf8_unicode_ci' NOT NULL DEFAULT '';
+		");
+		DB::execute("
+			ALTER TABLE `".TABLE_PREFIX."mail_content_imap_folders`
+			CHANGE `folder` `folder` varchar(255) COLLATE 'utf8_unicode_ci' NOT NULL AFTER `message_id`;
+		");
+		
+	}
+
+	function mail_update_29_30(){
+		// disable this feature by default
+		DB::execute("
+			UPDATE `".TABLE_PREFIX."contact_config_options` 
+			SET `default_value` = '0'
+			WHERE `name` = 'hide_quoted_text_in_emails';
+		");
+		
+	}
+	function mail_update_30_31() {
+		// check if config option for sync sent mails is present, if not then add it
+		$option = ConfigOptions::getByName('sent_mails_sync');
+		if (!$option instanceof ConfigOption) {
+			DB::execute("
+				INSERT INTO `".TABLE_PREFIX."config_options` (`category_name`, `name`, `value`, `config_handler_class`, `is_system`, `option_order`, `dev_comment`,`options`) VALUES
+				('mail module', 'sent_mails_sync','0', 'BoolConfigHandler', 0, 0, '','')
+				ON DUPLICATE KEY UPDATE `category_name`=`category_name`;
+			");
+		}
+	}
+
+	function mail_update_31_32() {
+		if (!check_column_exists(TABLE_PREFIX."mail_accounts", "oauth2_access_token")) {
+			DB::execute("
+				ALTER TABLE `".TABLE_PREFIX."mail_accounts` ADD `oauth2_access_token` text COLLATE 'utf8_unicode_ci' NOT NULL;
+			");
+		}
+		if (!check_column_exists(TABLE_PREFIX."mail_accounts", "oauth2_provider")) {
+			DB::execute("
+				ALTER TABLE `".TABLE_PREFIX."mail_accounts` ADD `oauth2_provider` varchar(255) COLLATE 'utf8_unicode_ci' NOT NULL DEFAULT '';
+			");
+		}
+		if (!check_column_exists(TABLE_PREFIX."mail_accounts", "uses_oauth2")) {
+			DB::execute("
+				ALTER TABLE `".TABLE_PREFIX."mail_accounts` ADD `uses_oauth2` tinyint(1) NOT NULL DEFAULT 0;
+			");
+		}
+	}

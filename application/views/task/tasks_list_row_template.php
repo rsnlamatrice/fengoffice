@@ -67,7 +67,7 @@
   {{#if draw_options.showMore}}
   <tr>
   <td colspan={{total_cols.length}}>
-    <div style="clear: left;">
+    <div style="clear: left; margin-bottom: 20px;">
            <a class="internalLink nobr" style="margin-left: 15px;font-size: 12px;" href="#" onclick="ogTasks.showMoreTasks('{{draw_options.groupId}}');return false;" id="show_more_group_{{draw_options.groupId}}">
             {{lang 'show more'}}../
            </a>
@@ -284,6 +284,10 @@
           <div class='ogTasksTimeClock ico-time-pause task-action-icon' title='{{lang 'pause_work'}}'></div>
         </a>
         {{/if}}
+
+        <a href='#' class="task-single-div" onclick='ogTasks.executeAction("cancel_work",[{{task.id}}])'>
+          <div class='ogTasksTimeClock ico-delete task-action-icon' title='{{lang 'discard_work'}}'></div>
+        </a>
       {{else}}
         {{#if can_add_timeslots}}
         <a class="internalLink task-single-div" href="#" onclick="ogTasks.executeAction('start_work',[{{task.id}}],'','#tasksPanelContainer')">

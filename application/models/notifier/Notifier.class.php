@@ -25,7 +25,7 @@ class Notifier {
 	 */
 	static public $exchange_compatible = null;
 	
-	function notifyAction($object, $action, $log_data, $exclude_contacts_ids = null, $log_object = null) {
+	static function notifyAction($object, $action, $log_data, $exclude_contacts_ids = null, $log_object = null) {
 
 		if (!$object instanceof ContentDataObject) {
 			return;
@@ -44,13 +44,14 @@ class Notifier {
 		if ($object instanceof ProjectEvent && $action == ApplicationLogs::ACTION_ADD) { //remove invited people from subscribers to avoid repeated notifications
 			$tmp_subs = array();
 			foreach ($subscribers as $person) {
-				$inv = EventInvitations::findById(array('event_id' => $object->getId(), 'contact_id' => $person->getId()));
+				$inv = EventInvitations::instance()->findById(array('event_id' => $object->getId(), 'contact_id' => $person->getId()));
 				if (!($inv instanceof EventInvitation)) $tmp_subs[] = $person;
 			}
 			$subscribers = $tmp_subs;
 		}
 
 		//Remove contacts from $exclude_contacts_ids
+		$tmp_subs = array();
 		if(is_array($exclude_contacts_ids)){
 			foreach ($subscribers as $person) {
 				if (!in_array($person->getId(), $exclude_contacts_ids)) $tmp_subs[] = $person;
@@ -178,7 +179,7 @@ class Notifier {
                         /* @var $member Member */
                         $parent_members = $member->getAllParentMembersInHierarchy();
                         $parents_str = '';
-                        $obj_type = ObjectTypes::findById($member->getObjectTypeId());
+                        $obj_type = ObjectTypes::instance()->findById($member->getObjectTypeId());
                         
                         foreach ($parent_members as $pm) {
                             /* @var $pm Member */
@@ -243,7 +244,7 @@ class Notifier {
 			if (!is_valid_email($senderemail)) {
 				$administrator = owner_company()->getCreatedBy();
 				if (!$administrator instanceof Contact) {
-					$administrator = Contacts::findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
+					$administrator = Contacts::instance()->findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
 				}
 				if ($administrator instanceof Contact) {
 					$senderemail = $administrator->getEmailAddress();
@@ -512,10 +513,10 @@ class Notifier {
 						//invitations
 						$guests = "";
 						$send_link = array();
-						$invitations = EventInvitations::findAll(array ('conditions' => 'event_id = ' . $object->getId()));
+						$invitations = EventInvitations::instance()->findAll(array ('conditions' => 'event_id = ' . $object->getId()));
 						if (isset($invitations) && is_array($invitations)) {
 							foreach ($invitations as $inv) {
-								$inv_user = Contacts::findById($inv->getContactId());
+								$inv_user = Contacts::instance()->findById($inv->getContactId());
 								if ($inv_user instanceof Contact) {
 									if (can_access($inv_user, $object->getMembers(),ProjectEvents::instance()->getObjectTypeId(), ACCESS_LEVEL_READ)) {
 										$state_desc = lang('pending response');
@@ -653,7 +654,7 @@ class Notifier {
 		
 		$administrator = owner_company()->getCreatedBy();
 		if (!$administrator instanceof Contact) {
-			$administrator = Contacts::findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
+			$administrator = Contacts::instance()->findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
 		}
 		if (!$administrator instanceof Contact) return;
 		
@@ -728,7 +729,7 @@ class Notifier {
 		
 		$administrator = owner_company()->getCreatedBy();
 		if (!$administrator instanceof Contact) {
-			$administrator = Contacts::findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
+			$administrator = Contacts::instance()->findOne(array("conditions" => "user_type IN (SELECT id FROM ".TABLE_PREFIX."permission_groups WHERE name IN ('Super Administrator','Administrator'))", "order" => "user_type"));
 		}
 		if (!$administrator instanceof Contact) return;
 		
@@ -939,7 +940,7 @@ class Notifier {
 				$dim = $member->getDimension();
 				if($dim->getIsManageable()){
 					if ($dim->getCode() == "customer_project" || $dim->getCode() == "customers"){
-						$obj_type = ObjectTypes::findById($member->getObjectTypeId());
+						$obj_type = ObjectTypes::instance()->findById($member->getObjectTypeId());
 						if ($obj_type instanceof ObjectType) {
 							$contexts[$dim->getCode()][$obj_type->getName()][]= '<span style="'.get_workspace_css_properties($member->getMemberColor()).'">'. $member->getName() .'</span>';
 						}
@@ -974,12 +975,12 @@ class Notifier {
 		}
 		tpl_assign('attachments', $attachments);// attachments
                 //invitations
-                $invitations = EventInvitations::findAll(array ('conditions' => 'event_id = ' . $object->getId()));
+                $invitations = EventInvitations::instance()->findAll(array ('conditions' => 'event_id = ' . $object->getId()));
                 if (isset($invitations) && is_array($invitations)) {
                     $guests = "";
                     $send_link = array();
                     foreach ($invitations as $inv) {
-                        $inv_user = Contacts::findById($inv->getContactId());
+                        $inv_user = Contacts::instance()->findById($inv->getContactId());
                         if ($inv_user instanceof Contact) {
                             if (can_access($inv_user, $object->getMembers(),ProjectEvents::instance()->getObjectTypeId(), ACCESS_LEVEL_READ)) {
                                 $state_desc = lang('pending response');
@@ -1111,7 +1112,7 @@ class Notifier {
 			foreach ($invs as $inv){
 				if ($inv->getUserId() == ($from_user->getId())) continue;
 				$decision = $inv->getInvitationState();
-				$user_name = Contacts::findById($inv->getUserId())->getObjectName();
+				$user_name = Contacts::instance()->findById($inv->getUserId())->getObjectName();
 				if ($decision == 1){
 					$assist[] = ($user_name);
 				}else if ($decision == 2){
@@ -1226,7 +1227,7 @@ class Notifier {
 	 * @return boolean
 	 * @throws NotifierConnectionError
 	 */
-	function taskAssigned(ProjectTask $task) {
+	static function taskAssigned(ProjectTask $task) {
 
 		if (in_array($task->getObjectTypeId(), config_option("disable_notifications_for_object_type"))) {
 			return;
@@ -1328,7 +1329,7 @@ class Notifier {
 				$dim = $member->getDimension();
 				if($dim->getIsManageable()){
 					if ($dim->getCode() == "customer_project" || $dim->getCode() == "customers"){
-						$obj_type = ObjectTypes::findById($member->getObjectTypeId());
+						$obj_type = ObjectTypes::instance()->findById($member->getObjectTypeId());
 						if ($obj_type instanceof ObjectType) {
 							$contexts[$dim->getCode()][$obj_type->getName()][]= '<span style="'.get_workspace_css_properties($member->getMemberColor()).'">'. $member->getName() .'</span>';
 						}
@@ -1494,7 +1495,7 @@ class Notifier {
 						$parents_str .= '<span style="'.get_workspace_css_properties($pm->getMemberColor()).'">'. $pm->getName() .'</span>';
 					}
 					if ($dim->getCode() == "customer_project" || $dim->getCode() == "customers"){
-						$obj_type = ObjectTypes::findById($member->getObjectTypeId());
+						$obj_type = ObjectTypes::instance()->findById($member->getObjectTypeId());
 						if ($obj_type instanceof ObjectType) {
 							$contexts[$dim->getCode()][$obj_type->getName()][]= $parents_str . '<span style="'.get_workspace_css_properties($member->getMemberColor()).'">'. $member->getName() .'</span>';
 						}
@@ -1722,6 +1723,14 @@ class Notifier {
 			$sender_name = $from_name;
 		}
 
+		// check if from header needs to be overriden
+		if ($from_override = array_var($_SESSION, 'mailer_override_from')) {
+			$from_address = $from_override['address'];
+			if (trim($sender_name) == "") {
+				$sender_name = $from_override['name'];
+			}
+		}
+
 		$from = array($from_address => $sender_name);
 
 		if (Plugins::instance()->isActivePlugin('mail') && config_option('use_mail_accounts_to_send_nots')) {
@@ -1763,10 +1772,17 @@ class Notifier {
 		foreach ($to as $address) {
 			$message->addTo(array_var($address, 0), array_var($address, 1));
 		}
+		
+		// before using getUsername function ensure that transport object is a Swift_SmtpTransport, other transports classes may not have this function
+		if ($mailer->getTransport() instanceof Swift_SmtpTransport) {
+			// set email from equal to user account
+			$message->setFrom($mailer->getTransport()->getUsername());
+		}
+
 		$result = $mailer->send($message);
 
 		if ($swift_logger_level >= 2 || ($swift_logger_level > 0 && !$result)) {
-			file_put_contents(CACHE_DIR."/swift_log_notifier.txt", "\n".gmdate("Y-m-d H:i:s")." DEBUG:\n" . $swift_logger->dump() . "----------------------------------------------------------------------------", FILE_APPEND);
+			file_put_contents(CACHE_DIR."/swift_log_notifier.txt", "\n".gmdate("Y-m-d H:i:s")." \n" . $swift_logger->dump() . "----------------------------------------------------------------------------", FILE_APPEND);
 			$swift_logger->clear();
 		}
 
@@ -1945,6 +1961,14 @@ class Notifier {
 					$sender_name = $from_name;
 				}
 
+				// check if from header needs to be overriden
+				if ($from_override = array_var($_SESSION, 'mailer_override_from')) {
+					$from_address = $from_override['address'];
+					if (trim($sender_name) == "") {
+						$sender_name = $from_override['name'];
+					}
+				}
+
 				$from = array($from_address => $sender_name);
 				
 				
@@ -2092,6 +2116,11 @@ class Notifier {
 			$smtp_secure_connection = array_var($parameters, 'smtp_secure_connection', self::SMTP_SECURE_CONNECTION_NO);
 			$smtp_username = array_var($parameters, 'smtp_username');
 			$smtp_password = array_var($parameters, 'smtp_password');
+
+			$from_override = array_var($parameters, 'from_override');
+			if ($from_override) {
+				$_SESSION['mailer_override_from'] = $from_override;
+			}
 		
 		} else {
 			$mail_transport_config = config_option('mail_transport', self::MAIL_TRANSPORT_MAIL);
@@ -2341,7 +2370,7 @@ class Notifier {
 						$parents_str .= '<span style="'.get_workspace_css_properties($pm->getMemberColor()).'">'. $pm->getName() .'</span>';
 					}
 					if ($dim->getCode() == "customer_project" || $dim->getCode() == "customers"){
-						$obj_type = ObjectTypes::findById($member->getObjectTypeId());
+						$obj_type = ObjectTypes::instance()->findById($member->getObjectTypeId());
 						if ($obj_type instanceof ObjectType) {
 							$contexts[$dim->getCode()][$obj_type->getName()][]= $parents_str . '<span style="'.get_workspace_css_properties($member->getMemberColor()).'">'. $member->getName() .'</span>';
 						}

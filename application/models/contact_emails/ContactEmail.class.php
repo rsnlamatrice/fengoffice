@@ -15,7 +15,7 @@
     * @return EmailType
     */
     function getEmailType() {
-      return EmailTypes::findById($this->getEmailTypeId());
+      return EmailTypes::instance()->findById($this->getEmailTypeId());
     } // getEmailType
 
 
@@ -27,7 +27,7 @@
     * @return Contact
     */
     function getContact() {
-      return Contacts::findById($this->getContactId());
+      return Contacts::instance()->findById($this->getContactId());
     } // getContact
 
 
@@ -45,13 +45,25 @@
     	}
     } // editEmailAddress
 
-      function getArrayInfo(){
-      	$et = $this->getEmailType();
-        return array(
-            'type'=> $et ? $et->getName() : '',
-            'email'=>$this->getEmailAddress()
-        );
-      }
+    /**
+    * Set Billing Email to Main Email
+    *
+    * @access public
+    * @param  void
+    * @return void
+    */
+    function setBillingMainEmail($switch) {
+      $this->setDefaultEmail($switch);
+      $this->save();
+    } // setBillingMainEmail
+
+    function getArrayInfo(){
+      $et = $this->getEmailType();
+      return array(
+          'type'=> $et ? $et->getName() : '',
+          'email'=>$this->getEmailAddress()
+      );
+    }
 
 
     /**
